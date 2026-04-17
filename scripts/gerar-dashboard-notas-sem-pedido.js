@@ -69,10 +69,7 @@ function loadContacts() {
     const engenheiroEmailNome = norm(row[8]);
     const email = norm(row[9]);
 
-    if (obra) {
-      contactsByObra.set(slug(obra), { obra, engenheiro, fone });
-    }
-
+    if (obra) contactsByObra.set(slug(obra), { obra, engenheiro, fone });
     if (engenheiroEmailNome && email) {
       emailsByEngineer.set(slug(engenheiroEmailNome), email);
       const primeiroNome = slug(engenheiroEmailNome).split(' ')[0];
@@ -84,9 +81,7 @@ function loadContacts() {
 }
 
 function pick(row, keys) {
-  for (const key of keys) {
-    if (norm(row[key])) return norm(row[key]);
-  }
+  for (const key of keys) if (norm(row[key])) return norm(row[key]);
   return '';
 }
 
