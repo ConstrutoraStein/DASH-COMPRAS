@@ -7,7 +7,7 @@ const { execFileSync } = require('child_process');
 const SPREADSHEET_ID = '1g_YvcsZN-jXDSrUevgPYMmg8daxSu2NC8XIWAnjHHBI';
 const SPREADSHEET_TITLE = 'Notas fiscais sem pedido';
 const GOG = 'C:\\Users\\gabriel.abel\\AppData\\Roaming\\npm\\gog.exe';
-const OUTPUT = path.resolve(__dirname, '..', 'dashboard-notas-fiscais-sem-pedido.html');
+const OUTPUT = path.resolve(__dirname, '..', 'index.html');
 const TEAM_SHEET = 'EQUIPE STEIN';
 const DATA_SHEETS = [
   'ITA',
