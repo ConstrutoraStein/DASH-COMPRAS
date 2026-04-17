@@ -7,7 +7,7 @@ const { execFileSync } = require('child_process');
 const SPREADSHEET_ID = '1g_YvcsZN-jXDSrUevgPYMmg8daxSu2NC8XIWAnjHHBI';
 const SPREADSHEET_TITLE = 'Notas fiscais sem pedido';
 const GOG = 'C:\\Users\\gabriel.abel\\AppData\\Roaming\\npm\\gog.exe';
-const OUTPUT = path.resolve(__dirname, '..', 'index.html');
+const OUTPUT = path.resolve(__dirname, '..', 'dashboard-notas-fiscais-sem-pedido.html');
 const TEAM_SHEET = 'EQUIPE STEIN';
 const DATA_SHEETS = [
   'ITA',
@@ -278,7 +278,7 @@ body:before{content:'';position:fixed;inset:0;background-image:linear-gradient(r
  </div>
  <div style="height:12px"></div>
  <div class="split">
- <div class="mini"><div class="label">Obra mais travada</div><div class="metric" style="font-size:28px" id="obraCritica">-</div><div class="hint">Maior concentração de notas no recorte</div></div>
+ <div class="mini"><div class="label">Obra com maior atraso</div><div class="metric" style="font-size:28px" id="obraCritica">-</div><div class="hint">Maior volume de pendências antigas no recorte</div></div>
  <div class="mini"><div class="label">Maior valor parado</div><div class="metric" style="font-size:28px" id="valorParado">-</div><div class="hint">Soma das etapas ainda não lançadas no Mega</div></div>
  </div>
  <div style="height:12px"></div>
@@ -288,7 +288,7 @@ body:before{content:'';position:fixed;inset:0;background-image:linear-gradient(r
 
  <div class="row2">
  <div class="card"><div class="section-title"><h2>Fluxo de entrada por dia</h2><span>Distribuição dentro do recorte atual</span></div><div class="bars" id="fluxoEntrada"></div></div>
- <div class="card"><div class="section-title"><h2>Ranking de obras críticas</h2><span>Obras com mais notas no recorte</span></div><div class="table-wrap"><table><thead><tr><th>Obra</th><th>Notas</th><th>Sem solicitação</th><th>Pode lançar</th><th>Lançado</th></tr></thead><tbody id="rankingBody"></tbody></table></div></div>
+ <div class="card"><div class="section-title"><h2>Ranking de obras críticas</h2><span>Obras com mais notas no recorte</span></div><div class="table-wrap"><table><thead><tr><th>Obra</th><th>Pendentes</th><th>Sem solicitação</th><th>Sem pedido</th><th>Pode lançar</th><th>Lançado</th></tr></thead><tbody id="rankingBody"></tbody></table></div></div>
  </div>
 
  <div class="row">
@@ -342,7 +342,16 @@ function render(){
   setText('empresaCritica', empresaRank[0]?.key || '-');
 
   const obrasRank = byCount(docs, r => (r.obra && r.obra.trim()) ? r.obra : 'Sem obra').sort((a,b)=>b.value-a.value);
-  setText('obraCritica', obrasRank[0]?.key || '-');
+  const atrasoPorObra = new Map();
+  docs.filter(r => r.statusOperacional !== 'Lançado no Mega').forEach(r => {
+    const key = (r.obra && r.obra.trim()) ? r.obra : 'Sem obra';
+    const item = atrasoPorObra.get(key) || { obra:key, atrasoTotal:0, qtd:0 };
+    item.atrasoTotal += Math.max(0, Number(r.daysLate || 0));
+    item.qtd += 1;
+    atrasoPorObra.set(key, item);
+  });
+  const obraMaiorAtraso = Array.from(atrasoPorObra.values()).sort((a,b)=>b.atrasoTotal-a.atrasoTotal || b.qtd-a.qtd)[0];
+  setText('obraCritica', obraMaiorAtraso?.obra || '-');
   const valorParado = docs.filter(r => r.statusOperacional !== 'Lançado no Mega').reduce((s,r)=>s+(r.valor||0),0);
   setText('valorParado', fmtMoney(valorParado));
 
@@ -355,15 +364,16 @@ function render(){
   const rankingMap = new Map();
   docs.forEach(r => {
     const key = r.obra || 'Sem obra';
-    const item = rankingMap.get(key) || {obra:key,total:0,semSolicitacao:0,podeLancar:0,lancado:0};
-    item.total++;
+    const item = rankingMap.get(key) || {obra:key,totalAtivo:0,semSolicitacao:0,semPedido:0,podeLancar:0,lancado:0};
+    if(r.statusOperacional !== 'Lançado no Mega') item.totalAtivo++;
     if(r.statusOperacional === 'Sem solicitação') item.semSolicitacao++;
+    if(r.statusOperacional === 'Com solicitação, sem pedido/medição') item.semPedido++;
     if(r.statusOperacional === 'Pode lançar') item.podeLancar++;
     if(r.statusOperacional === 'Lançado no Mega') item.lancado++;
     rankingMap.set(key,item);
   });
-  const ranking = Array.from(rankingMap.values()).sort((a,b)=>b.total-a.total).slice(0,10);
-  setHtml('rankingBody', ranking.length ? ranking.map(r => '<tr><td>' + r.obra + '</td><td>' + r.total + '</td><td>' + r.semSolicitacao + '</td><td>' + r.podeLancar + '</td><td>' + r.lancado + '</td></tr>').join('') : emptyRow(5,'Sem dados para esse filtro.'));
+  const ranking = Array.from(rankingMap.values()).sort((a,b)=>b.totalAtivo-a.totalAtivo || b.lancado-a.lancado).slice(0,10);
+  setHtml('rankingBody', ranking.length ? ranking.map(r => '<tr><td>' + r.obra + '</td><td>' + r.totalAtivo + '</td><td>' + r.semSolicitacao + '</td><td>' + r.semPedido + '</td><td>' + r.podeLancar + '</td><td>' + r.lancado + '</td></tr>').join('') : emptyRow(6,'Sem dados para esse filtro.'));
 
   const contatoMap = new Map();
   docs.forEach(r => {
