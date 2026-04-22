@@ -10,37 +10,37 @@ const GOG = 'C:\\Users\\gabriel.abel\\AppData\\Roaming\\npm\\gog.exe';
 const OUTPUT = path.resolve(__dirname, '..', 'index.html');
 const TEAM_SHEET = 'EQUIPE STEIN';
 const DATA_SHEETS = [
-  'ITA',
-  'STEIN',
-  'STEIN E BERTEMES',
-  'HASA 13',
-  'COSMOPOLITAN',
-  'STEIN LITORAL',
-  'VERTIKAL',
-  'STEIN ALAMEDA',
-  'ELS PARTICIPAÇÕES',
-  'COSTA ESMERALDA'
+ 'ITA',
+ 'STEIN',
+ 'STEIN E BERTEMES',
+ 'HASA 13',
+ 'COSMOPOLITAN',
+ 'STEIN LITORAL',
+ 'VERTIKAL',
+ 'STEIN ALAMEDA',
+ 'ELS PARTICIPAÇÕES',
+ 'COSTA ESMERALDA'
 ];
 
 function gogJson(args) {
-  const finalArgs = [...args];
-  if (!finalArgs.includes('--account')) finalArgs.push('--account', 'suporte.ti@cstein.com.br');
-  const raw = execFileSync(GOG, finalArgs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  return JSON.parse(raw);
+ const finalArgs = [...args];
+ if (!finalArgs.includes('--account')) finalArgs.push('--account', 'suporte.ti@cstein.com.br');
+ const raw = execFileSync(GOG, finalArgs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+ return JSON.parse(raw);
 }
 
 function norm(v) { return String(v ?? '').trim(); }
 function slug(v) { return norm(v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
 function parseMoney(v) {
-  const s = norm(v).replace(/R\$/gi, '').replace(/\./g, '').replace(',', '.').replace(/\s+/g, '');
-  const n = Number.parseFloat(s);
-  return Number.isFinite(n) ? n : 0;
+ const s = norm(v).replace(/R\$/gi, '').replace(/\./g, '').replace(',', '.').replace(/\s+/g, '');
+ const n = Number.parseFloat(s);
+ return Number.isFinite(n) ? n : 0;
 }
 function parseDateBR(v) {
-  const s = norm(v);
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!m) return null;
-  return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+ const s = norm(v);
+ const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+ if (!m) return null;
+ return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
 }
 function daysDiff(a, b) { return Math.floor((a - b) / 86400000); }
 function fmtMoney(v) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0); }
@@ -48,170 +48,170 @@ function fmtDate(d) { return d ? new Intl.DateTimeFormat('pt-BR').format(d) : '-
 function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function buildMapFromRows(values) {
-  const header = values[0] || [];
-  return (values.slice(1) || []).map(row => {
-    const obj = {};
-    for (let i = 0; i < header.length; i++) obj[norm(header[i])] = norm(row[i]);
-    return obj;
-  });
+ const header = values[0] || [];
+ return (values.slice(1) || []).map(row => {
+ const obj = {};
+ for (let i = 0; i < header.length; i++) obj[norm(header[i])] = norm(row[i]);
+ return obj;
+ });
 }
 
 function loadContacts() {
-  const team = gogJson(['sheets', 'get', SPREADSHEET_ID, `${TEAM_SHEET}!A1:Z300`, '--json']);
-  const values = team.values || [];
-  const contactsByObra = new Map();
-  const emailsByEngineer = new Map();
+ const team = gogJson(['sheets', 'get', SPREADSHEET_ID, `${TEAM_SHEET}!A1:Z300`, '--json']);
+ const values = team.values || [];
+ const contactsByObra = new Map();
+ const emailsByEngineer = new Map();
 
-  for (const row of values.slice(1)) {
-    const engenheiro = norm(row[0]);
-    const fone = norm(row[1]);
-    const obra = norm(row[2]);
-    const engenheiroEmailNome = norm(row[8]);
-    const email = norm(row[9]);
+ for (const row of values.slice(1)) {
+ const engenheiro = norm(row[0]);
+ const fone = norm(row[1]);
+ const obra = norm(row[2]);
+ const engenheiroEmailNome = norm(row[8]);
+ const email = norm(row[9]);
 
-    if (obra) contactsByObra.set(slug(obra), { obra, engenheiro, fone });
-    if (engenheiroEmailNome && email) {
-      emailsByEngineer.set(slug(engenheiroEmailNome), email);
-      const primeiroNome = slug(engenheiroEmailNome).split(' ')[0];
-      if (primeiroNome) emailsByEngineer.set(primeiroNome, email);
-    }
-  }
+ if (obra) contactsByObra.set(slug(obra), { obra, engenheiro, fone });
+ if (engenheiroEmailNome && email) {
+ emailsByEngineer.set(slug(engenheiroEmailNome), email);
+ const primeiroNome = slug(engenheiroEmailNome).split(' ')[0];
+ if (primeiroNome) emailsByEngineer.set(primeiroNome, email);
+ }
+ }
 
-  return { contactsByObra, emailsByEngineer };
+ return { contactsByObra, emailsByEngineer };
 }
 
 function pick(row, keys) {
-  for (const key of keys) if (norm(row[key])) return norm(row[key]);
-  return '';
+ for (const key of keys) if (norm(row[key])) return norm(row[key]);
+ return '';
 }
 
 function normalizeObra(sheet, obra) {
-  const s = norm(obra);
-  if (!s) return sheet;
-  if (sheet === 'HASA 13' && slug(s) === 'hasa 13') return 'RESERVA';
-  return s;
+ const s = norm(obra);
+ if (!s) return sheet;
+ if (sheet === 'HASA 13' && slug(s) === 'hasa 13') return 'RESERVA';
+ return s;
 }
 
 function classifyStatus(rec) {
-  if (rec.lancamentoNf) return 'Lançado no Mega';
-  if (rec.solicitacao && rec.pedidoMedicao) return 'Pode lançar';
-  if (rec.solicitacao && !rec.pedidoMedicao) return 'Com solicitação, sem pedido/medição';
-  return 'Sem solicitação';
+ if (rec.lancamentoNf) return 'Lançado no Mega';
+ if (rec.solicitacao && rec.pedidoMedicao) return 'Pode lançar';
+ if (rec.solicitacao && !rec.pedidoMedicao) return 'Com solicitação, sem pedido/medição';
+ return 'Sem solicitação';
 }
 
 function isValidOperationalObra(v, empresa = '') {
-  const s = norm(v);
-  if (!s) return false;
-  const x = slug(s);
-  const empresaSlug = slug(empresa);
-  const bloqueios = ['sem obra', 'sem info', 'verificando', 'escritorio', 'stein', 'ita', 'vertikal', 'costa esmeralda', 'els participacoes', 'hasa 13'];
-  if (bloqueios.includes(x)) return false;
-  if (empresaSlug && x === empresaSlug) return false;
-  return true;
+ const s = norm(v);
+ if (!s) return false;
+ const x = slug(s);
+ const empresaSlug = slug(empresa);
+ const bloqueios = ['sem obra', 'sem info', 'verificando', 'escritorio', 'stein', 'ita', 'vertikal', 'costa esmeralda', 'els participacoes', 'hasa 13'];
+ if (bloqueios.includes(x)) return false;
+ if (empresaSlug && x === empresaSlug) return false;
+ return true;
 }
 
 function displayObra(v, empresa) {
-  const s = norm(v);
-  if (!s) return empresa;
-  return s;
+ const s = norm(v);
+ if (!s) return empresa;
+ return s;
 }
 
 function loadLegacyDocs(sheet, rows, contactsByObra, emailsByEngineer, today) {
-  const docs = [];
-  for (const row of rows) {
-    const notaFiscal = pick(row, ['Nota Fiscal']);
-    const fornecedor = pick(row, ['Razão Social']);
-    const dataEmissaoRaw = pick(row, ['Data de Emissão']);
-    if (!notaFiscal && !fornecedor && !dataEmissaoRaw) continue;
-    const obra = normalizeObra(sheet, pick(row, ['OBRA']) || sheet);
-    const contact = contactsByObra.get(slug(obra)) || {};
-    const engineerName = pick(row, ['ENGENHEIRO']) || contact.engenheiro || '';
-    const engineerEmail = emailsByEngineer.get(slug(engineerName)) || emailsByEngineer.get(slug(engineerName).split(' ')[0]) || '';
-    const dataEmissao = parseDateBR(dataEmissaoRaw);
-    const daysLate = dataEmissao ? Math.max(0, daysDiff(today, dataEmissao) - 2) : 0;
-    const solicitacao = pick(row, ['NÚMERO SOLICITAÇÃO']);
-    const rec = {
-      aba: sheet,
-      tipoNota: pick(row, ['Status']),
-      dataEmissao,
-      dataEmissaoRaw,
-      notaFiscal,
-      cnpjCpf: pick(row, ['CNPJ / CPF']),
-      razaoSocial: fornecedor,
-      valor: parseMoney(pick(row, ['Valor Total'])),
-      obra: displayObra(obra, sheet),
-      tipoLancamento: '',
-      solicitacao,
-      pedidoMedicao: '',
-      lancamentoNf: '',
-      observacao: '',
-      engenheiro: engineerName,
-      contatoFone: contact.fone || '',
-      contatoEmail: engineerEmail || '',
-      daysLate
-    };
-    rec.statusOperacional = solicitacao ? 'Com solicitação, sem pedido/medição' : 'Sem solicitação';
-    rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
-    rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
-    docs.push(rec);
-  }
-  return docs;
+ const docs = [];
+ for (const row of rows) {
+ const notaFiscal = pick(row, ['Nota Fiscal']);
+ const fornecedor = pick(row, ['Razão Social']);
+ const dataEmissaoRaw = pick(row, ['Data de Emissão']);
+ if (!notaFiscal && !fornecedor && !dataEmissaoRaw) continue;
+ const obra = normalizeObra(sheet, pick(row, ['OBRA']) || sheet);
+ const contact = contactsByObra.get(slug(obra)) || {};
+ const engineerName = pick(row, ['ENGENHEIRO']) || contact.engenheiro || '';
+ const engineerEmail = emailsByEngineer.get(slug(engineerName)) || emailsByEngineer.get(slug(engineerName).split(' ')[0]) || '';
+ const dataEmissao = parseDateBR(dataEmissaoRaw);
+ const daysLate = dataEmissao ? Math.max(0, daysDiff(today, dataEmissao) - 2) : 0;
+ const solicitacao = pick(row, ['NÚMERO SOLICITAÇÃO']);
+ const rec = {
+ aba: sheet,
+ tipoNota: pick(row, ['Status']),
+ dataEmissao,
+ dataEmissaoRaw,
+ notaFiscal,
+ cnpjCpf: pick(row, ['CNPJ / CPF']),
+ razaoSocial: fornecedor,
+ valor: parseMoney(pick(row, ['Valor Total'])),
+ obra: displayObra(obra, sheet),
+ tipoLancamento: '',
+ solicitacao,
+ pedidoMedicao: '',
+ lancamentoNf: '',
+ observacao: '',
+ engenheiro: engineerName,
+ contatoFone: contact.fone || '',
+ contatoEmail: engineerEmail || '',
+ daysLate
+ };
+ rec.statusOperacional = solicitacao ? 'Com solicitação, sem pedido/medição' : 'Sem solicitação';
+ rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
+ rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
+ docs.push(rec);
+ }
+ return docs;
 }
 
 function loadDocs(contactData) {
-  const docs = [];
-  const today = new Date();
-  for (const sheet of DATA_SHEETS) {
-    const json = gogJson(['sheets', 'get', SPREADSHEET_ID, `${sheet}!A1:Z5000`, '--json']);
-    const rows = buildMapFromRows(json.values || []);
-    const headerKeys = Object.keys(rows[0] || {});
-    const isLegacy = headerKeys.includes('NÚMERO SOLICITAÇÃO') && !headerKeys.includes('LANÇAMENTO NF');
-    if (isLegacy) {
-      docs.push(...loadLegacyDocs(sheet, rows, contactData.contactsByObra, contactData.emailsByEngineer, today));
-      continue;
-    }
-    for (const row of rows) {
-      const notaFiscal = pick(row, ['NOTA FISCAL']);
-      const fornecedor = pick(row, ['RAZÃO SOCIAL']);
-      const dataEmissaoRaw = pick(row, ['DATA DE EMISSÃO']);
-      if (!notaFiscal && !fornecedor && !dataEmissaoRaw) continue;
-      const obra = normalizeObra(sheet, pick(row, ['OBRA']) || sheet);
-      const contact = contactData.contactsByObra.get(slug(obra)) || {};
-      const dataEmissao = parseDateBR(dataEmissaoRaw);
-      const daysLate = dataEmissao ? Math.max(0, daysDiff(today, dataEmissao) - 2) : 0;
-      const engineerName = pick(row, ['ENGENHEIRO']) || contact.engenheiro || '';
-      const engineerEmail = contactData.emailsByEngineer.get(slug(engineerName)) || contactData.emailsByEngineer.get(slug(engineerName).split(' ')[0]) || '';
-      const rec = {
-        aba: sheet,
-        tipoNota: pick(row, ['TIPO DE NOTA']),
-        dataEmissao,
-        dataEmissaoRaw,
-        notaFiscal,
-        cnpjCpf: pick(row, ['CNPJ / CPF']),
-        razaoSocial: fornecedor,
-        valor: parseMoney(pick(row, ['VALOR TOTAL'])),
-        obra: displayObra(obra, sheet),
-        tipoLancamento: pick(row, ['TIPO LANÇAMENTO']),
-        solicitacao: pick(row, ['SOLICITAÇÃO']),
-        pedidoMedicao: pick(row, ['PEDIDO/MEDIÇÃO']),
-        lancamentoNf: pick(row, ['LANÇAMENTO NF']),
-        observacao: pick(row, ['OBSERVAÇÃO']),
-        engenheiro: engineerName,
-        contatoFone: contact.fone || '',
-        contatoEmail: engineerEmail || '',
-        daysLate
-      };
-      rec.statusOperacional = classifyStatus(rec);
-      rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
-      rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
-      docs.push(rec);
-    }
-  }
-  return docs;
+ const docs = [];
+ const today = new Date();
+ for (const sheet of DATA_SHEETS) {
+ const json = gogJson(['sheets', 'get', SPREADSHEET_ID, `${sheet}!A1:Z5000`, '--json']);
+ const rows = buildMapFromRows(json.values || []);
+ const headerKeys = Object.keys(rows[0] || {});
+ const isLegacy = headerKeys.includes('NÚMERO SOLICITAÇÃO') && !headerKeys.includes('LANÇAMENTO NF');
+ if (isLegacy) {
+ docs.push(...loadLegacyDocs(sheet, rows, contactData.contactsByObra, contactData.emailsByEngineer, today));
+ continue;
+ }
+ for (const row of rows) {
+ const notaFiscal = pick(row, ['NOTA FISCAL']);
+ const fornecedor = pick(row, ['RAZÃO SOCIAL']);
+ const dataEmissaoRaw = pick(row, ['DATA DE EMISSÃO']);
+ if (!notaFiscal && !fornecedor && !dataEmissaoRaw) continue;
+ const obra = normalizeObra(sheet, pick(row, ['OBRA']) || sheet);
+ const contact = contactData.contactsByObra.get(slug(obra)) || {};
+ const dataEmissao = parseDateBR(dataEmissaoRaw);
+ const daysLate = dataEmissao ? Math.max(0, daysDiff(today, dataEmissao) - 2) : 0;
+ const engineerName = pick(row, ['ENGENHEIRO']) || contact.engenheiro || '';
+ const engineerEmail = contactData.emailsByEngineer.get(slug(engineerName)) || contactData.emailsByEngineer.get(slug(engineerName).split(' ')[0]) || '';
+ const rec = {
+ aba: sheet,
+ tipoNota: pick(row, ['TIPO DE NOTA']),
+ dataEmissao,
+ dataEmissaoRaw,
+ notaFiscal,
+ cnpjCpf: pick(row, ['CNPJ / CPF']),
+ razaoSocial: fornecedor,
+ valor: parseMoney(pick(row, ['VALOR TOTAL'])),
+ obra: displayObra(obra, sheet),
+ tipoLancamento: pick(row, ['TIPO LANÇAMENTO']),
+ solicitacao: pick(row, ['SOLICITAÇÃO']),
+ pedidoMedicao: pick(row, ['PEDIDO/MEDIÇÃO']),
+ lancamentoNf: pick(row, ['LANÇAMENTO NF']),
+ observacao: pick(row, ['OBSERVAÇÃO']),
+ engenheiro: engineerName,
+ contatoFone: contact.fone || '',
+ contatoEmail: engineerEmail || '',
+ daysLate
+ };
+ rec.statusOperacional = classifyStatus(rec);
+ rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
+ rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
+ docs.push(rec);
+ }
+ }
+ return docs;
 }
 
 function buildHtml(data) {
-  return `<!DOCTYPE html>
+ return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8" />
@@ -306,7 +306,7 @@ const setHtml = (id, html) => document.getElementById(id).innerHTML = html;
 const setText = (id, text) => document.getElementById(id).textContent = text;
 
 function uniqueEmpresas(){ const empresas = Array.from(new Set(RAW_DOCS.map(x => x.aba).filter(Boolean))); const prioridade = ['STEIN','ITA']; return empresas.sort((a,b)=>{ const ia = prioridade.indexOf(a); const ib = prioridade.indexOf(b); if (ia !== -1 || ib !== -1) { if (ia === -1) return 1; if (ib === -1) return -1; return ia - ib; } return a.localeCompare(b,'pt-BR'); }); }
-function isValidOperationalObra(v){ const s = String(v || '').trim(); if(!s) return false; const x = s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); const bloqueios = ['sem obra','sem info','verificando']; return !bloqueios.includes(x); }
+function isValidOperationalObra(v, empresa){ const s = String(v || '').trim(); if(!s) return false; const x = s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); const empresaSlug = String(empresa||'').trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(); const bloqueios = ['sem obra','sem info','verificando','escritorio','stein','ita','vertikal','costa esmeralda','els participacoes','hasa 13','stein e bertemes','stein litoral','stein alameda','cosmopolitan']; if(bloqueios.includes(x)) return false; if(empresaSlug && x === empresaSlug) return false; return true; }
 function selectedEmpresas(){ return Array.from(document.querySelectorAll('input[name="empresaFiltro"]:checked')).map(x => x.value); }
 function getPeriodo(){ const dtIniRaw=dataInicialFiltro.value; const dtFimRaw=dataFinalFiltro.value; let dtIni=toIso(dtIniRaw); let dtFim=toIso(dtFimRaw); const parcial=(!!dtIniRaw&&!dtFimRaw)||(!dtIniRaw&&!!dtFimRaw); if(parcial) return {usar:false,parcial:true,dtIni:dtIniRaw,dtFim:dtFimRaw}; if(!(dtIni&&dtFim)) return {usar:false,parcial:false,dtIni:'',dtFim:''}; if(dtIni>dtFim){const tmp=dtIni;dtIni=dtFim;dtFim=tmp;} return {usar:true,parcial:false,dtIni,dtFim}; }
 function filteredDocs(){ const empresas = selectedEmpresas(); const periodo = getPeriodo(); return RAW_DOCS.filter(r => { const d = r.dataEmissaoIso || ''; return (empresas.length===0 || empresas.includes(r.aba)) && (!periodo.usar || (d && d >= periodo.dtIni && d <= periodo.dtFim)); }); }
@@ -314,89 +314,89 @@ function emptyRow(colspan, txt){ return '<tr><td colspan="' + colspan + '" class
 function renderBars(targetId, items, emptyText){ if(!items.length){ setHtml(targetId, '<div class="empty">' + emptyText + '</div>'); return; } const max = Math.max(...items.map(x=>x.value),1); setHtml(targetId, items.map(x => '<div class="bar-row"><div class="bar-label">' + x.key + '</div><div class="bar"><div class="fill" style="width:' + ((x.value/max)*100) + '%"></div></div><div>' + x.value + '</div></div>').join('')); }
 
 function render(){
-  const periodo = getPeriodo();
-  const docs = filteredDocs();
-  const semSolicitacao = docs.filter(r => r.statusOperacional === 'Sem solicitação');
-  const semPedido = docs.filter(r => r.statusOperacional === 'Com solicitação, sem pedido/medição');
-  const podeLancar = docs.filter(r => r.statusOperacional === 'Pode lançar');
-  const lancado = docs.filter(r => r.statusOperacional === 'Lançado no Mega');
+ const periodo = getPeriodo();
+ const docs = filteredDocs();
+ const semSolicitacao = docs.filter(r => r.statusOperacional === 'Sem solicitação');
+ const semPedido = docs.filter(r => r.statusOperacional === 'Com solicitação, sem pedido/medição');
+ const podeLancar = docs.filter(r => r.statusOperacional === 'Pode lançar');
+ const lancado = docs.filter(r => r.statusOperacional === 'Lançado no Mega');
 
-  setText('kpiTotal', docs.length);
-  setText('kpiSemSolicitacao', semSolicitacao.length);
-  setText('kpiSemPedido', semPedido.length);
-  setText('kpiPodeLancar', podeLancar.length);
-  setText('kpiLancado', lancado.length);
-  setText('kpiValor', fmtMoney(docs.reduce((s,r)=>s+(r.valor||0),0)));
+ setText('kpiTotal', docs.length);
+ setText('kpiSemSolicitacao', semSolicitacao.length);
+ setText('kpiSemPedido', semPedido.length);
+ setText('kpiPodeLancar', podeLancar.length);
+ setText('kpiLancado', lancado.length);
+ setText('kpiValor', fmtMoney(docs.reduce((s,r)=>s+(r.valor||0),0)));
 
-  const statusRank = [
-    {key:'Sem solicitação', value:semSolicitacao.length},
-    {key:'Com solicitação, sem pedido/medição', value:semPedido.length},
-    {key:'Pode lançar', value:podeLancar.length},
-    {key:'Lançado no Mega', value:lancado.length}
-  ].sort((a,b)=>b.value-a.value);
-  setText('gargaloPrincipal', statusRank[0]?.key || '-');
+ const statusRank = [
+ {key:'Sem solicitação', value:semSolicitacao.length},
+ {key:'Com solicitação, sem pedido/medição', value:semPedido.length},
+ {key:'Pode lançar', value:podeLancar.length},
+ {key:'Lançado no Mega', value:lancado.length}
+ ].sort((a,b)=>b.value-a.value);
+ setText('gargaloPrincipal', statusRank[0]?.key || '-');
 
-  const empresaRank = byCount(docs, r => r.aba).sort((a,b)=>b.value-a.value);
-  setText('empresaCritica', empresaRank[0]?.key || '-');
+ const empresaRank = byCount(docs, r => r.aba).sort((a,b)=>b.value-a.value);
+ setText('empresaCritica', empresaRank[0]?.key || '-');
 
-  const docsComObraValida = docs.filter(r => isValidOperationalObra((r.obra && r.obra.trim()) ? r.obra : '', r.aba || ''));
-  const obrasRank = byCount(docsComObraValida, r => r.obra).sort((a,b)=>b.value-a.value);
-  const atrasoPorObra = new Map();
-  docsComObraValida.filter(r => r.statusOperacional !== 'Lançado no Mega').forEach(r => {
-    const key = r.obra;
-    const item = atrasoPorObra.get(key) || { obra:key, atrasoTotal:0, qtd:0 };
-    item.atrasoTotal += Math.max(0, Number(r.daysLate || 0));
-    item.qtd += 1;
-    atrasoPorObra.set(key, item);
-  });
-  const obraMaiorAtraso = Array.from(atrasoPorObra.values()).sort((a,b)=>b.atrasoTotal-a.atrasoTotal || b.qtd-a.qtd)[0];
-  setText('obraCritica', obraMaiorAtraso?.obra || '-');
-  const valorParado = docs.filter(r => r.statusOperacional !== 'Lançado no Mega').reduce((s,r)=>s+(r.valor||0),0);
-  setText('valorParado', fmtMoney(valorParado));
+ const docsComObraValida = docs.filter(r => isValidOperationalObra((r.obra && r.obra.trim()) ? r.obra : '', r.aba || ''));
+ const obrasRank = byCount(docsComObraValida, r => r.obra).sort((a,b)=>b.value-a.value);
+ const atrasoPorObra = new Map();
+ docsComObraValida.filter(r => r.statusOperacional !== 'Lançado no Mega').forEach(r => {
+ const key = r.obra;
+ const item = atrasoPorObra.get(key) || { obra:key, atrasoTotal:0, qtd:0 };
+ item.atrasoTotal += Math.max(0, Number(r.daysLate || 0));
+ item.qtd += 1;
+ atrasoPorObra.set(key, item);
+ });
+ const obraMaiorAtraso = Array.from(atrasoPorObra.values()).sort((a,b)=>b.atrasoTotal-a.atrasoTotal || b.qtd-a.qtd)[0];
+ setText('obraCritica', obraMaiorAtraso?.obra || '-');
+ const valorParado = docs.filter(r => r.statusOperacional !== 'Lançado no Mega').reduce((s,r)=>s+(r.valor||0),0);
+ setText('valorParado', fmtMoney(valorParado));
 
-  const obras = obrasRank.slice(0,8);
-  renderBars('volumePorObra', obras, 'Nenhuma nota encontrada para o recorte atual.');
+ const obras = obrasRank.slice(0,8);
+ renderBars('volumePorObra', obras, 'Nenhuma nota encontrada para o recorte atual.');
 
-  const fluxo = byCount(docs.filter(r => r.dataEmissaoBr), r => r.dataEmissaoBr).sort((a,b)=>toDateInput(a.key).localeCompare(toDateInput(b.key))).slice(-10);
-  renderBars('fluxoEntrada', fluxo, 'Sem documentos com data válida nesse recorte.');
+ const fluxo = byCount(docs.filter(r => r.dataEmissaoBr), r => r.dataEmissaoBr).sort((a,b)=>toDateInput(a.key).localeCompare(toDateInput(b.key))).slice(-10);
+ renderBars('fluxoEntrada', fluxo, 'Sem documentos com data válida nesse recorte.');
 
-  const rankingMap = new Map();
-  docsComObraValida.forEach(r => {
-    const key = r.obra;
-    const item = rankingMap.get(key) || {obra:key,totalAtivo:0,semSolicitacao:0,semPedido:0,podeLancar:0,lancado:0};
-    if(r.statusOperacional !== 'Lançado no Mega') item.totalAtivo++;
-    if(r.statusOperacional === 'Sem solicitação') item.semSolicitacao++;
-    if(r.statusOperacional === 'Com solicitação, sem pedido/medição') item.semPedido++;
-    if(r.statusOperacional === 'Pode lançar') item.podeLancar++;
-    if(r.statusOperacional === 'Lançado no Mega') item.lancado++;
-    rankingMap.set(key,item);
-  });
-  const ranking = Array.from(rankingMap.values()).sort((a,b)=>b.totalAtivo-a.totalAtivo || b.lancado-a.lancado).slice(0,10);
-  setHtml('rankingBody', ranking.length ? ranking.map(r => '<tr><td>' + r.obra + '</td><td>' + r.totalAtivo + '</td><td>' + r.semSolicitacao + '</td><td>' + r.semPedido + '</td><td>' + r.podeLancar + '</td><td>' + r.lancado + '</td></tr>').join('') : emptyRow(6,'Sem dados para esse filtro.'));
+ const rankingMap = new Map();
+ docsComObraValida.forEach(r => {
+ const key = r.obra;
+ const item = rankingMap.get(key) || {obra:key,totalAtivo:0,semSolicitacao:0,semPedido:0,podeLancar:0,lancado:0};
+ if(r.statusOperacional !== 'Lançado no Mega') item.totalAtivo++;
+ if(r.statusOperacional === 'Sem solicitação') item.semSolicitacao++;
+ if(r.statusOperacional === 'Com solicitação, sem pedido/medição') item.semPedido++;
+ if(r.statusOperacional === 'Pode lançar') item.podeLancar++;
+ if(r.statusOperacional === 'Lançado no Mega') item.lancado++;
+ rankingMap.set(key,item);
+ });
+ const ranking = Array.from(rankingMap.values()).sort((a,b)=>b.totalAtivo-a.totalAtivo || b.lancado-a.lancado).slice(0,10);
+ setHtml('rankingBody', ranking.length ? ranking.map(r => '<tr><td>' + r.obra + '</td><td>' + r.totalAtivo + '</td><td>' + r.semSolicitacao + '</td><td>' + r.semPedido + '</td><td>' + r.podeLancar + '</td><td>' + r.lancado + '</td></tr>').join('') : emptyRow(6,'Sem dados para esse filtro.'));
 
-  const contatoMap = new Map();
-  docs.forEach(r => {
-    const key = (r.obra && r.obra.trim()) ? r.obra : '';
-    if (!isValidOperationalObra(key, r.aba || '')) return;
-    if (!contatoMap.has(key)) contatoMap.set(key, {obra:key,engenheiro:r.engenheiro||'-',fone:r.contatoFone||'-',email:r.contatoEmail||'-'});
-  });
-  const contatos = Array.from(contatoMap.values()).filter(c => c.engenheiro !== '-' || c.fone !== '-' || c.email !== '-').slice(0,12);
-  setHtml('contatoBody', contatos.length ? contatos.map(c => '<tr><td>' + c.obra + '</td><td>' + c.engenheiro + '</td><td>' + c.fone + '</td><td>' + c.email + '</td></tr>').join('') : emptyRow(4,'Sem contatos para esse filtro.'));
+ const contatoMap = new Map();
+ docs.forEach(r => {
+ const key = (r.obra && r.obra.trim()) ? r.obra : '';
+ if (!isValidOperationalObra(key, r.aba || '')) return;
+ if (!contatoMap.has(key)) contatoMap.set(key, {obra:key,engenheiro:r.engenheiro||'-',fone:r.contatoFone||'-',email:r.contatoEmail||'-'});
+ });
+ const contatos = Array.from(contatoMap.values()).filter(c => c.engenheiro !== '-' || c.fone !== '-' || c.email !== '-').slice(0,12);
+ setHtml('contatoBody', contatos.length ? contatos.map(c => '<tr><td>' + c.obra + '</td><td>' + c.engenheiro + '</td><td>' + c.fone + '</td><td>' + c.email + '</td></tr>').join('') : emptyRow(4,'Sem contatos para esse filtro.'));
 
-  const podeLancarVisivel = podeLancar.filter(r => isValidOperationalObra(r.obra || '', r.aba || ''));
-  setHtml('podeLancarBody', podeLancarVisivel.length ? podeLancarVisivel.slice(0,15).map(r => '<tr><td>' + r.aba + '</td><td>' + (r.obra || '-') + '</td><td>' + r.notaFiscal + '</td><td>' + r.razaoSocial + '</td><td>' + (r.pedidoMedicao || '-') + '</td><td>' + fmtMoney(r.valor) + '</td></tr>').join('') : emptyRow(6,'Nenhuma nota pronta para lançar nesse recorte.'));
+ const podeLancarVisivel = podeLancar.filter(r => isValidOperationalObra(r.obra || '', r.aba || ''));
+ setHtml('podeLancarBody', podeLancarVisivel.length ? podeLancarVisivel.slice(0,15).map(r => '<tr><td>' + r.aba + '</td><td>' + (r.obra || '-') + '</td><td>' + r.notaFiscal + '</td><td>' + r.razaoSocial + '</td><td>' + (r.pedidoMedicao || '-') + '</td><td>' + fmtMoney(r.valor) + '</td></tr>').join('') : emptyRow(6,'Nenhuma nota pronta para lançar nesse recorte.'));
 
-  const empresas = selectedEmpresas(); const empresaTxt = empresas.length ? empresas.join(', ') : 'todas as empresas';
-  const dtIniMissing = !dataInicialFiltro.value && !!dataFinalFiltro.value;
-  const dtFimMissing = !!dataInicialFiltro.value && !dataFinalFiltro.value;
-  dataInicialFiltro.style.borderColor = dtIniMissing ? 'rgba(245,158,11,.85)' : '';
-  dataInicialFiltro.style.boxShadow = dtIniMissing ? '0 0 0 3px rgba(245,158,11,.18)' : '';
-  dataFinalFiltro.style.borderColor = dtFimMissing ? 'rgba(245,158,11,.85)' : '';
-  dataFinalFiltro.style.boxShadow = dtFimMissing ? '0 0 0 3px rgba(245,158,11,.18)' : '';
-  let dataTxt = 'sem período aplicado';
-  if (periodo.parcial) dataTxt = '⚠️ preencha a data ' + (dtIniMissing ? 'inicial' : 'final') + ' para filtrar por período';
-  else if (periodo.usar) dataTxt = periodo.dtIni + ' até ' + periodo.dtFim;
-  setText('resumoFiltros', 'Mostrando ' + docs.length + ' notas no recorte de ' + empresaTxt + (periodo.parcial ? '. ' + dataTxt : ' e período ' + dataTxt) + '.');
+ const empresas = selectedEmpresas(); const empresaTxt = empresas.length ? empresas.join(', ') : 'todas as empresas';
+ const dtIniMissing = !dataInicialFiltro.value && !!dataFinalFiltro.value;
+ const dtFimMissing = !!dataInicialFiltro.value && !dataFinalFiltro.value;
+ dataInicialFiltro.style.borderColor = dtIniMissing ? 'rgba(245,158,11,.85)' : '';
+ dataInicialFiltro.style.boxShadow = dtIniMissing ? '0 0 0 3px rgba(245,158,11,.18)' : '';
+ dataFinalFiltro.style.borderColor = dtFimMissing ? 'rgba(245,158,11,.85)' : '';
+ dataFinalFiltro.style.boxShadow = dtFimMissing ? '0 0 0 3px rgba(245,158,11,.18)' : '';
+ let dataTxt = 'sem período aplicado';
+ if (periodo.parcial) dataTxt = '⚠️ preencha a data ' + (dtIniMissing ? 'inicial' : 'final') + ' para filtrar por período';
+ else if (periodo.usar) dataTxt = periodo.dtIni + ' até ' + periodo.dtFim;
+ setText('resumoFiltros', 'Mostrando ' + docs.length + ' notas no recorte de ' + empresaTxt + (periodo.parcial ? '. ' + dataTxt : ' e período ' + dataTxt) + '.');
 }
 
 empresaBox.innerHTML = ['<label class="company-item"><input type="checkbox" id="selecionarTodasEmpresas"><span>Todas as empresas</span></label>'].concat(uniqueEmpresas().map(e => '<label class="company-item"><input type="checkbox" name="empresaFiltro" value="' + e + '"><span>' + e + '</span></label>')).join('');
@@ -414,21 +414,21 @@ render();
 }
 
 function main() {
-  const contactData = loadContacts();
-  const docs = loadDocs(contactData);
-  const html = buildHtml({
-    spreadsheetTitle: SPREADSHEET_TITLE,
-    generatedAt: new Date().toLocaleString('pt-BR'),
-    docs
-  });
+ const contactData = loadContacts();
+ const docs = loadDocs(contactData);
+ const html = buildHtml({
+ spreadsheetTitle: SPREADSHEET_TITLE,
+ generatedAt: new Date().toLocaleString('pt-BR'),
+ docs
+ });
 
-  fs.writeFileSync(OUTPUT, html, 'utf8');
-  console.log(`Dashboard gerada em: ${OUTPUT}`);
-  console.log(`Total de notas: ${docs.length}`);
-  console.log(`Sem solicitação: ${docs.filter(r => r.statusOperacional === 'Sem solicitação').length}`);
-  console.log(`Com solicitação, sem pedido/medição: ${docs.filter(r => r.statusOperacional === 'Com solicitação, sem pedido/medição').length}`);
-  console.log(`Pode lançar: ${docs.filter(r => r.statusOperacional === 'Pode lançar').length}`);
-  console.log(`Lançado no Mega: ${docs.filter(r => r.statusOperacional === 'Lançado no Mega').length}`);
+ fs.writeFileSync(OUTPUT, html, 'utf8');
+ console.log(`Dashboard gerada em: ${OUTPUT}`);
+ console.log(`Total de notas: ${docs.length}`);
+ console.log(`Sem solicitação: ${docs.filter(r => r.statusOperacional === 'Sem solicitação').length}`);
+ console.log(`Com solicitação, sem pedido/medição: ${docs.filter(r => r.statusOperacional === 'Com solicitação, sem pedido/medição').length}`);
+ console.log(`Pode lançar: ${docs.filter(r => r.statusOperacional === 'Pode lançar').length}`);
+ console.log(`Lançado no Mega: ${docs.filter(r => r.statusOperacional === 'Lançado no Mega').length}`);
 }
 
 main();
