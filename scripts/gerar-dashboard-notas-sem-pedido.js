@@ -99,12 +99,15 @@ function classifyStatus(rec) {
   return 'Sem solicitação';
 }
 
-function isValidOperationalObra(v) {
+function isValidOperationalObra(v, empresa = '') {
   const s = norm(v);
   if (!s) return false;
   const x = slug(s);
+  const empresaSlug = slug(empresa);
   const bloqueios = ['sem obra', 'sem info', 'verificando', 'escritorio', 'stein', 'ita', 'vertikal', 'costa esmeralda', 'els participacoes', 'hasa 13'];
-  return !bloqueios.includes(x);
+  if (bloqueios.includes(x)) return false;
+  if (empresaSlug && x === empresaSlug) return false;
+  return true;
 }
 
 function displayObra(v, empresa) {
@@ -336,7 +339,7 @@ function render(){
   const empresaRank = byCount(docs, r => r.aba).sort((a,b)=>b.value-a.value);
   setText('empresaCritica', empresaRank[0]?.key || '-');
 
-  const docsComObraValida = docs.filter(r => isValidOperationalObra((r.obra && r.obra.trim()) ? r.obra : ''));
+  const docsComObraValida = docs.filter(r => isValidOperationalObra((r.obra && r.obra.trim()) ? r.obra : '', r.aba || ''));
   const obrasRank = byCount(docsComObraValida, r => r.obra).sort((a,b)=>b.value-a.value);
   const atrasoPorObra = new Map();
   docsComObraValida.filter(r => r.statusOperacional !== 'Lançado no Mega').forEach(r => {
@@ -374,13 +377,13 @@ function render(){
   const contatoMap = new Map();
   docs.forEach(r => {
     const key = (r.obra && r.obra.trim()) ? r.obra : '';
-    if (!isValidOperationalObra(key)) return;
+    if (!isValidOperationalObra(key, r.aba || '')) return;
     if (!contatoMap.has(key)) contatoMap.set(key, {obra:key,engenheiro:r.engenheiro||'-',fone:r.contatoFone||'-',email:r.contatoEmail||'-'});
   });
   const contatos = Array.from(contatoMap.values()).filter(c => c.engenheiro !== '-' || c.fone !== '-' || c.email !== '-').slice(0,12);
   setHtml('contatoBody', contatos.length ? contatos.map(c => '<tr><td>' + c.obra + '</td><td>' + c.engenheiro + '</td><td>' + c.fone + '</td><td>' + c.email + '</td></tr>').join('') : emptyRow(4,'Sem contatos para esse filtro.'));
 
-  const podeLancarVisivel = podeLancar.filter(r => isValidOperationalObra(r.obra || ''));
+  const podeLancarVisivel = podeLancar.filter(r => isValidOperationalObra(r.obra || '', r.aba || ''));
   setHtml('podeLancarBody', podeLancarVisivel.length ? podeLancarVisivel.slice(0,15).map(r => '<tr><td>' + r.aba + '</td><td>' + (r.obra || '-') + '</td><td>' + r.notaFiscal + '</td><td>' + r.razaoSocial + '</td><td>' + (r.pedidoMedicao || '-') + '</td><td>' + fmtMoney(r.valor) + '</td></tr>').join('') : emptyRow(6,'Nenhuma nota pronta para lançar nesse recorte.'));
 
   const empresas = selectedEmpresas(); const empresaTxt = empresas.length ? empresas.join(', ') : 'todas as empresas';
