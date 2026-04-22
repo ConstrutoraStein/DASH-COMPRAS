@@ -103,7 +103,7 @@ function isValidOperationalObra(v) {
   const s = norm(v);
   if (!s) return false;
   const x = slug(s);
-  const bloqueios = ['sem obra', 'sem info', 'verificando'];
+  const bloqueios = ['sem obra', 'sem info', 'verificando', 'escritorio', 'stein', 'ita', 'vertikal', 'costa esmeralda', 'els participacoes', 'hasa 13'];
   return !bloqueios.includes(x);
 }
 
@@ -336,10 +336,11 @@ function render(){
   const empresaRank = byCount(docs, r => r.aba).sort((a,b)=>b.value-a.value);
   setText('empresaCritica', empresaRank[0]?.key || '-');
 
-  const obrasRank = byCount(docs, r => (r.obra && r.obra.trim()) ? r.obra : 'Sem obra').sort((a,b)=>b.value-a.value);
+  const docsComObraValida = docs.filter(r => isValidOperationalObra((r.obra && r.obra.trim()) ? r.obra : ''));
+  const obrasRank = byCount(docsComObraValida, r => r.obra).sort((a,b)=>b.value-a.value);
   const atrasoPorObra = new Map();
-  docs.filter(r => r.statusOperacional !== 'Lançado no Mega').forEach(r => {
-    const key = (r.obra && r.obra.trim()) ? r.obra : 'Sem obra';
+  docsComObraValida.filter(r => r.statusOperacional !== 'Lançado no Mega').forEach(r => {
+    const key = r.obra;
     const item = atrasoPorObra.get(key) || { obra:key, atrasoTotal:0, qtd:0 };
     item.atrasoTotal += Math.max(0, Number(r.daysLate || 0));
     item.qtd += 1;
@@ -357,8 +358,8 @@ function render(){
   renderBars('fluxoEntrada', fluxo, 'Sem documentos com data válida nesse recorte.');
 
   const rankingMap = new Map();
-  docs.forEach(r => {
-    const key = r.obra || 'Sem obra';
+  docsComObraValida.forEach(r => {
+    const key = r.obra;
     const item = rankingMap.get(key) || {obra:key,totalAtivo:0,semSolicitacao:0,semPedido:0,podeLancar:0,lancado:0};
     if(r.statusOperacional !== 'Lançado no Mega') item.totalAtivo++;
     if(r.statusOperacional === 'Sem solicitação') item.semSolicitacao++;
