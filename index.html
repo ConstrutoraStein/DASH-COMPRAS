@@ -75,7 +75,7 @@ body:before{content:'';position:fixed;inset:0;background-image:linear-gradient(r
 
  <div class="row2">
  <div class="card"><div class="section-title"><h2>Fluxo de entrada por dia</h2><span>Distribuição dentro do recorte atual</span></div><div class="bars" id="fluxoEntrada"></div></div>
- <div class="card"><div class="section-title"><h2>Ranking de obras críticas</h2><span>Obras com mais notas no recorte</span></div><div class="table-wrap"><table><thead><tr><th>Obra</th><th>Pendentes</th><th>Sem solicitação</th><th>Sem pedido</th><th>Pode lançar</th><th>Lançado</th></tr></thead><tbody id="rankingBody"></tbody></table></div></div>
+ <div class="card"><div class="section-title"><h2>Ranking de obras críticas</h2><span>Obras com mais notas no recorte</span></div><div class="table-wrap"><table><thead><tr><th>Obra</th><th>Pendentes</th><th>Sem solicitação</th><th>Erro solicitação</th><th>Sem pedido</th><th>Erro pedido</th><th>Pode lançar</th><th>Lançado</th></tr></thead><tbody id="rankingBody"></tbody></table></div></div>
  </div>
 
  <div class="row">
@@ -156,16 +156,18 @@ function render(){
  const rankingMap = new Map();
  docsComObraValida.forEach(r => {
  const key = r.obra;
- const item = rankingMap.get(key) || {obra:key,totalAtivo:0,semSolicitacao:0,semPedido:0,podeLancar:0,lancado:0};
+ const item = rankingMap.get(key) || {obra:key,totalAtivo:0,semSolicitacao:0,erroSolicitacao:0,semPedido:0,erroPedido:0,podeLancar:0,lancado:0};
  if(r.statusOperacional !== 'Lançado no Mega') item.totalAtivo++;
  if(r.statusOperacional === 'Sem solicitação') item.semSolicitacao++;
+ if(r.erroSolicitacao) item.erroSolicitacao++;
  if(r.statusOperacional === 'Com solicitação, sem pedido/medição') item.semPedido++;
+ if(r.erroPedidoMedicao) item.erroPedido++;
  if(r.statusOperacional === 'Pode lançar') item.podeLancar++;
  if(r.statusOperacional === 'Lançado no Mega') item.lancado++;
  rankingMap.set(key,item);
  });
  const ranking = Array.from(rankingMap.values()).sort((a,b)=>b.totalAtivo-a.totalAtivo || b.lancado-a.lancado).slice(0,10);
- setHtml('rankingBody', ranking.length ? ranking.map(r => '<tr><td>' + r.obra + '</td><td>' + r.totalAtivo + '</td><td>' + r.semSolicitacao + '</td><td>' + r.semPedido + '</td><td>' + r.podeLancar + '</td><td>' + r.lancado + '</td></tr>').join('') : emptyRow(6,'Sem dados para esse filtro.'));
+ setHtml('rankingBody', ranking.length ? ranking.map(r => '<tr><td>' + r.obra + '</td><td>' + r.totalAtivo + '</td><td>' + r.semSolicitacao + '</td><td>' + r.erroSolicitacao + '</td><td>' + r.semPedido + '</td><td>' + r.erroPedido + '</td><td>' + r.podeLancar + '</td><td>' + r.lancado + '</td></tr>').join('') : emptyRow(8,'Sem dados para esse filtro.'));
 
  const contatoMap = new Map();
  docs.forEach(r => {
