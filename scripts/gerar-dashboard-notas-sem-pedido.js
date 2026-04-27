@@ -368,7 +368,12 @@ body:before{content:'';position:fixed;inset:0;background-image:linear-gradient(r
 const RAW_DOCS = ${JSON.stringify(data.docs)};
 const fmtMoney = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
 const toDateInput = s => { if(!s) return ''; const p=s.split('/'); return p.length===3 ? [p[2], p[1].padStart(2,'0'), p[0].padStart(2,'0')].join('-') : ''; };
-const fromIsoToBr = iso => { if(!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return ''; const parts = iso.split('-'); return parts[2] + '/' + parts[1] + '/' + parts[0]; };
+const fromIsoToBr = iso => {
+ if (!iso) return '';
+ const parts = String(iso).split('-');
+ if (parts.length !== 3 || parts[0].length !== 4 || parts[1].length !== 2 || parts[2].length !== 2) return '';
+ return parts[2] + '/' + parts[1] + '/' + parts[0];
+};
 function toIso(v){ if(!v||v.length!==10) return ''; const p=v.split('-'); return (p.length===3&&p[0].length===2&&p[1].length===2&&p[2].length===4) ? p[2]+'-'+p[1]+'-'+p[0] : ''; }
 function normalizeDateInput(el){ const digits = String(el.value || '').replace(/\D/g,'').slice(0,8); if (!digits) { el.value = ''; return; } if (digits.length <= 2) { el.value = digits; return; } if (digits.length <= 4) { el.value = digits.slice(0,2) + '-' + digits.slice(2); return; } el.value = digits.slice(0,2) + '-' + digits.slice(2,4) + '-' + digits.slice(4,8); }
 const byCount = (arr, keyFn) => { const m = new Map(); arr.forEach(r => { const k = keyFn(r); m.set(k,(m.get(k)||0)+1); }); return Array.from(m.entries()).map(([key,value])=>({key,value})); };
