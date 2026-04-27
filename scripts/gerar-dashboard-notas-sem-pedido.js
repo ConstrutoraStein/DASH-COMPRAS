@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 const { execFileSync } = require('child_process');
 
 const SPREADSHEET_ID = '1g_YvcsZN-jXDSrUevgPYMmg8daxSu2NC8XIWAnjHHBI';
@@ -44,16 +45,63 @@ function parseDateBR(v) {
 }
 function daysDiff(a, b) { return Math.floor((a - b) / 86400000); }
 function fmtMoney(v) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0); }
-function fmtDate(d) { return d ? new Intl.DateTimeFormat('pt-BR').format(d) : '-'; }
+function fmtDate(d) { return d ? new Intl.NumberFormat('pt-BR').format(d) : '-'; }
 function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function buildMapFromRows(values) {
  const header = values[0] || [];
  return (values.slice(1) || []).map(row => {
- const obj = {};
- for (let i = 0; i < header.length; i++) obj[norm(header[i])] = norm(row[i]);
- return obj;
+  const obj = {};
+  for (let i = 0; i < header.length; i++) obj[norm(header[i])] = norm(row[i]);
+  return obj;
  });
+}
+
+function googleApiJson(url) {
+ return new Promise((resolve, reject) => {
+  let token;
+  try {
+   token = JSON.parse(fs.readFileSync('C:\\Users\\gabriel.abel\\.openclaw\\workspace\\google-token.json', 'utf8')).access_token;
+  } catch {
+   token = JSON.parse(fs.readFileSync('C:\\Users\\gabriel.abel\\.openclaw\\google\\token.json', 'utf8')).access_token;
+  }
+  https.get(url, { headers: { Authorization: 'Bearer ' + token } }, res => {
+   let d = '';
+   res.on('data', c => d += c);
+   res.on('end', () => {
+    if (res.statusCode !== 200) return reject(new Error('Google API ' + res.statusCode + ': ' + d));
+    try { resolve(JSON.parse(d)); } catch (e) { reject(e); }
+   });
+  }).on('error', reject);
+ });
+}
+
+function isRed(c) {
+ const r = Number(c?.red ?? 1), g = Number(c?.green ?? 1), b = Number(c?.blue ?? 1);
+ return r > 0.85 && g < 0.93 && b < 0.93 && r > g && r > b;
+}
+
+async function loadColorFlags() {
+ const ranges = DATA_SHEETS.map(s => 'ranges=' + encodeURIComponent(s + '!A1:Z5000')).join('&');
+ const fields = encodeURIComponent('sheets(properties/title,data(rowData(values(userEnteredValue,effectiveFormat/backgroundColor))))');
+ const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?includeGridData=true&${ranges}&fields=${fields}`;
+ const json = await googleApiJson(url);
+ const out = new Map();
+ for (const sheet of json.sheets || []) {
+  const title = sheet.properties?.title || '';
+  const rows = sheet.data?.[0]?.rowData || [];
+  const head = (rows[0]?.values || []).map(v => String(v.userEnteredValue?.stringValue || '').trim());
+  const idxSol = head.findIndex(h => /SOLICITA/i.test(h));
+  const idxPed = head.findIndex(h => /PEDIDO|MEDI/i.test(h));
+  for (let r = 1; r < rows.length; r++) {
+   const vals = rows[r].values || [];
+   out.set(title + '::' + (r + 1), {
+    erroSolicitacao: idxSol >= 0 ? isRed(vals[idxSol]?.effectiveFormat?.backgroundColor) : false,
+    erroPedidoMedicao: idxPed >= 0 ? isRed(vals[idxPed]?.effectiveFormat?.backgroundColor) : false
+   });
+  }
+ }
+ return out;
 }
 
 function loadContacts() {
@@ -63,18 +111,18 @@ function loadContacts() {
  const emailsByEngineer = new Map();
 
  for (const row of values.slice(1)) {
- const engenheiro = norm(row[0]);
- const fone = norm(row[1]);
- const obra = norm(row[2]);
- const engenheiroEmailNome = norm(row[8]);
- const email = norm(row[9]);
+  const engenheiro = norm(row[0]);
+  const fone = norm(row[1]);
+  const obra = norm(row[2]);
+  const engenheiroEmailNome = norm(row[8]);
+  const email = norm(row[9]);
 
- if (obra) contactsByObra.set(slug(obra), { obra, engenheiro, fone });
- if (engenheiroEmailNome && email) {
- emailsByEngineer.set(slug(engenheiroEmailNome), email);
- const primeiroNome = slug(engenheiroEmailNome).split(' ')[0];
- if (primeiroNome) emailsByEngineer.set(primeiroNome, email);
- }
+  if (obra) contactsByObra.set(slug(obra), { obra, engenheiro, fone });
+  if (engenheiroEmailNome && email) {
+   emailsByEngineer.set(slug(engenheiroEmailNome), email);
+   const primeiroNome = slug(engenheiroEmailNome).split(' ')[0];
+   if (primeiroNome) emailsByEngineer.set(primeiroNome, email);
+  }
  }
 
  return { contactsByObra, emailsByEngineer };
@@ -121,93 +169,111 @@ function displayObra(v, empresa) {
 function loadLegacyDocs(sheet, rows, contactsByObra, emailsByEngineer, today) {
  const docs = [];
  for (const row of rows) {
- const notaFiscal = pick(row, ['Nota Fiscal']);
- const fornecedor = pick(row, ['Razão Social']);
- const dataEmissaoRaw = pick(row, ['Data de Emissão']);
- if (!notaFiscal && !fornecedor && !dataEmissaoRaw) continue;
- const obra = normalizeObra(sheet, pick(row, ['OBRA']) || sheet);
- const contact = contactsByObra.get(slug(obra)) || {};
- const engineerName = pick(row, ['ENGENHEIRO']) || contact.engenheiro || '';
- const engineerEmail = emailsByEngineer.get(slug(engineerName)) || emailsByEngineer.get(slug(engineerName).split(' ')[0]) || '';
- const dataEmissao = parseDateBR(dataEmissaoRaw);
- const daysLate = dataEmissao ? Math.max(0, daysDiff(today, dataEmissao) - 2) : 0;
- const solicitacao = pick(row, ['NÚMERO SOLICITAÇÃO']);
- const rec = {
- aba: sheet,
- tipoNota: pick(row, ['Status']),
- dataEmissao,
- dataEmissaoRaw,
- notaFiscal,
- cnpjCpf: pick(row, ['CNPJ / CPF']),
- razaoSocial: fornecedor,
- valor: parseMoney(pick(row, ['Valor Total'])),
- obra: displayObra(obra, sheet),
- tipoLancamento: '',
- solicitacao,
- pedidoMedicao: '',
- lancamentoNf: '',
- observacao: '',
- engenheiro: engineerName,
- contatoFone: contact.fone || '',
- contatoEmail: engineerEmail || '',
- daysLate
- };
- rec.statusOperacional = solicitacao ? 'Com solicitação, sem pedido/medição' : 'Sem solicitação';
- rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
- rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
- docs.push(rec);
+  const notaFiscal = pick(row, ['Nota Fiscal']);
+  const fornecedor = pick(row, ['Razão Social']);
+  const dataEmissaoRaw = pick(row, ['Data de Emissão']);
+  if (!notaFiscal && !fornecedor && !dataEmissaoRaw) continue;
+  const obra = normalizeObra(sheet, pick(row, ['OBRA']) || sheet);
+  const contact = contactsByObra.get(slug(obra)) || {};
+  const engineerName = pick(row, ['ENGENHEIRO']) || contact.engenheiro || '';
+  const engineerEmail = emailsByEngineer.get(slug(engineerName)) || emailsByEngineer.get(slug(engineerName).split(' ')[0]) || '';
+  const dataEmissao = parseDateBR(dataEmissaoRaw);
+  const daysLate = dataEmissao ? Math.max(0, daysDiff(today, dataEmissao) - 2) : 0;
+  const solicitacao = pick(row, ['NÚMERO SOLICITAÇÃO']);
+  const rec = {
+   aba: sheet,
+   tipoNota: pick(row, ['Status']),
+   dataEmissao,
+   dataEmissaoRaw,
+   notaFiscal,
+   cnpjCpf: pick(row, ['CNPJ / CPF']),
+   razaoSocial: fornecedor,
+   valor: parseMoney(pick(row, ['Valor Total'])),
+   obra: displayObra(obra, sheet),
+   tipoLancamento: '',
+   solicitacao,
+   pedidoMedicao: '',
+   lancamentoNf: '',
+   observacao: '',
+   engenheiro: engineerName,
+   contatoFone: contact.fone || '',
+   contatoEmail: engineerEmail || '',
+   daysLate,
+   erroSolicitacao: false,
+   erroPedidoMedicao: false
+  };
+  rec.statusOperacional = solicitacao ? 'Com solicitação, sem pedido/medição' : 'Sem solicitação';
+  rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
+  rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
+  docs.push(rec);
  }
  return docs;
 }
 
-function loadDocs(contactData) {
+async function loadDocs(contactData) {
  const docs = [];
  const today = new Date();
+ const colorFlags = await loadColorFlags();
  for (const sheet of DATA_SHEETS) {
- const json = gogJson(['sheets', 'get', SPREADSHEET_ID, `${sheet}!A1:Z5000`, '--json']);
- const rows = buildMapFromRows(json.values || []);
- const headerKeys = Object.keys(rows[0] || {});
- const isLegacy = headerKeys.includes('NÚMERO SOLICITAÇÃO') && !headerKeys.includes('LANÇAMENTO NF');
- if (isLegacy) {
- docs.push(...loadLegacyDocs(sheet, rows, contactData.contactsByObra, contactData.emailsByEngineer, today));
- continue;
- }
- for (const row of rows) {
- const notaFiscal = pick(row, ['NOTA FISCAL']);
- const fornecedor = pick(row, ['RAZÃO SOCIAL']);
- const dataEmissaoRaw = pick(row, ['DATA DE EMISSÃO']);
- if (!notaFiscal && !fornecedor && !dataEmissaoRaw) continue;
- const obra = normalizeObra(sheet, pick(row, ['OBRA']) || sheet);
- const contact = contactData.contactsByObra.get(slug(obra)) || {};
- const dataEmissao = parseDateBR(dataEmissaoRaw);
- const daysLate = dataEmissao ? Math.max(0, daysDiff(today, dataEmissao) - 2) : 0;
- const engineerName = pick(row, ['ENGENHEIRO']) || contact.engenheiro || '';
- const engineerEmail = contactData.emailsByEngineer.get(slug(engineerName)) || contactData.emailsByEngineer.get(slug(engineerName).split(' ')[0]) || '';
- const rec = {
- aba: sheet,
- tipoNota: pick(row, ['TIPO DE NOTA']),
- dataEmissao,
- dataEmissaoRaw,
- notaFiscal,
- cnpjCpf: pick(row, ['CNPJ / CPF']),
- razaoSocial: fornecedor,
- valor: parseMoney(pick(row, ['VALOR TOTAL'])),
- obra: displayObra(obra, sheet),
- tipoLancamento: pick(row, ['TIPO LANÇAMENTO']),
- solicitacao: pick(row, ['SOLICITAÇÃO']),
- pedidoMedicao: pick(row, ['PEDIDO/MEDIÇÃO']),
- lancamentoNf: pick(row, ['LANÇAMENTO NF']),
- observacao: pick(row, ['OBSERVAÇÃO']),
- engenheiro: engineerName,
- contatoFone: contact.fone || '',
- contatoEmail: engineerEmail || '',
- daysLate
- };
- rec.statusOperacional = classifyStatus(rec);
- rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
- rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
- docs.push(rec);
- }
+  const json = gogJson(['sheets', 'get', SPREADSHEET_ID, `${sheet}!A1:Z5000`, '--json']);
+  const rows = buildMapFromRows(json.values || []);
+  const headerKeys = Object.keys(rows[0] || {});
+  const isLegacy = headerKeys.includes('NÚMERO SOLICITAÇÃO') && !headerKeys.includes('LANÇAMENTO NF');
+  if (isLegacy) {
+   const legacyDocs = loadLegacyDocs(sheet, rows, contactData.contactsByObra, contactData.emailsByEngineer, today);
+   legacyDocs.forEach((rec, idx) => {
+    const f = colorFlags.get(sheet + '::' + (idx + 2));
+    if (f) {
+     rec.erroSolicitacao = !!f.erroSolicitacao;
+     rec.erroPedidoMedicao = !!f.erroPedidoMedicao;
+    }
+   });
+   docs.push(...legacyDocs);
+   continue;
+  }
+  rows.forEach((row, idx) => {
+   const notaFiscal = pick(row, ['NOTA FISCAL']);
+   const fornecedor = pick(row, ['RAZÃO SOCIAL']);
+   const dataEmissaoRaw = pick(row, ['DATA DE EMISSÃO']);
+   if (!notaFiscal && !fornecedor && !dataEmissaoRaw) return;
+   const obra = normalizeObra(sheet, pick(row, ['OBRA']) || sheet);
+   const contact = contactData.contactsByObra.get(slug(obra)) || {};
+   const dataEmissao = parseDateBR(dataEmissaoRaw);
+   const daysLate = dataEmissao ? Math.max(0, daysDiff(today, dataEmissao) - 2) : 0;
+   const engineerName = pick(row, ['ENGENHEIRO']) || contact.engenheiro || '';
+   const engineerEmail = contactData.emailsByEngineer.get(slug(engineerName)) || contactData.emailsByEngineer.get(slug(engineerName).split(' ')[0]) || '';
+   const rec = {
+    aba: sheet,
+    tipoNota: pick(row, ['TIPO DE NOTA']),
+    dataEmissao,
+    dataEmissaoRaw,
+    notaFiscal,
+    cnpjCpf: pick(row, ['CNPJ / CPF']),
+    razaoSocial: fornecedor,
+    valor: parseMoney(pick(row, ['VALOR TOTAL'])),
+    obra: displayObra(obra, sheet),
+    tipoLancamento: pick(row, ['TIPO LANÇAMENTO']),
+    solicitacao: pick(row, ['SOLICITAÇÃO']),
+    pedidoMedicao: pick(row, ['PEDIDO/MEDIÇÃO']),
+    lancamentoNf: pick(row, ['LANÇAMENTO NF']),
+    observacao: pick(row, ['OBSERVAÇÃO']),
+    engenheiro: engineerName,
+    contatoFone: contact.fone || '',
+    contatoEmail: engineerEmail || '',
+    daysLate,
+    erroSolicitacao: false,
+    erroPedidoMedicao: false
+   };
+   rec.statusOperacional = classifyStatus(rec);
+   rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
+   rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
+   const f = colorFlags.get(sheet + '::' + (idx + 2));
+   if (f) {
+    rec.erroSolicitacao = !!f.erroSolicitacao;
+    rec.erroPedidoMedicao = !!f.erroPedidoMedicao;
+   }
+   docs.push(rec);
+  });
  }
  return docs;
 }
@@ -262,7 +328,9 @@ body:before{content:'';position:fixed;inset:0;background-image:linear-gradient(r
  <div class="grid kpis">
  <div class="card kpi"><div class="label">Total de notas</div><div class="metric" id="kpiTotal">-</div><div class="hint">Volume total no recorte atual.</div><div class="submetric">Visão consolidada da base filtrada.</div></div>
  <div class="card kpi"><div class="label">Sem solicitação</div><div class="metric" id="kpiSemSolicitacao">-</div><div class="hint">Notas sem avanço inicial no fluxo.</div><div class="submetric">Gargalo primário da esteira.</div></div>
+ <div class="card kpi" style="border-color:rgba(239,68,68,.35);box-shadow:0 20px 50px rgba(239,68,68,.10)"><div class="label" style="color:#fca5a5">Erro na solicitação</div><div class="metric" id="kpiErroSolicitacao">-</div><div class="hint">Qualquer vermelho na coluna Solicitação.</div><div class="submetric">Sinalização visual de erro na etapa.</div></div>
  <div class="card kpi"><div class="label">Com solicitação, sem pedido/medição</div><div class="metric" id="kpiSemPedido">-</div><div class="hint">Já entraram no fluxo, mas ainda sem pedido/medição.</div><div class="submetric">Backlog intermediário da operação.</div></div>
+ <div class="card kpi" style="border-color:rgba(239,68,68,.35);box-shadow:0 20px 50px rgba(239,68,68,.10)"><div class="label" style="color:#fca5a5">Erro no pedido/medição</div><div class="metric" id="kpiErroPedido">-</div><div class="hint">Qualquer vermelho na coluna Pedido/Medição.</div><div class="submetric">Sinalização visual de erro na etapa.</div></div>
  <div class="card kpi"><div class="label">Pode lançar</div><div class="metric" id="kpiPodeLancar">-</div><div class="hint">Solicitação e pedido/medição preenchidos, sem lançamento NF ou fluxo LIVRE pronto.</div><div class="submetric">Prontos para lançamento no Mega.</div></div>
  <div class="card kpi"><div class="label">Lançado no Mega</div><div class="metric" id="kpiLancado">-</div><div class="hint">Documentos com a coluna Lançamento NF preenchida.</div><div class="submetric">Etapa concluída dentro do ERP.</div></div>
  <div class="card kpi"><div class="label">Valor total monitorado</div><div class="metric" id="kpiValor">-</div><div class="hint">Soma financeira do recorte atual.</div><div class="submetric">Mede exposição do universo filtrado.</div></div>
@@ -318,6 +386,8 @@ function renderBars(targetId, items, emptyText){ if(!items.length){ setHtml(targ
 function render(){
  const periodo = getPeriodo();
  const docs = filteredDocs();
+ const erroSolicitacao = docs.filter(r => r.erroSolicitacao);
+ const erroPedido = docs.filter(r => r.erroPedidoMedicao);
  const semSolicitacao = docs.filter(r => r.statusOperacional === 'Sem solicitação');
  const semPedido = docs.filter(r => r.statusOperacional === 'Com solicitação, sem pedido/medição');
  const podeLancar = docs.filter(r => r.statusOperacional === 'Pode lançar');
@@ -325,7 +395,9 @@ function render(){
 
  setText('kpiTotal', docs.length);
  setText('kpiSemSolicitacao', semSolicitacao.length);
+ setText('kpiErroSolicitacao', erroSolicitacao.length);
  setText('kpiSemPedido', semPedido.length);
+ setText('kpiErroPedido', erroPedido.length);
  setText('kpiPodeLancar', podeLancar.length);
  setText('kpiLancado', lancado.length);
  setText('kpiValor', fmtMoney(docs.reduce((s,r)=>s+(r.valor||0),0)));
@@ -415,22 +487,27 @@ render();
 </html>`;
 }
 
-function main() {
+async function main() {
  const contactData = loadContacts();
- const docs = loadDocs(contactData);
+ const docs = await loadDocs(contactData);
  const html = buildHtml({
- spreadsheetTitle: SPREADSHEET_TITLE,
- generatedAt: new Date().toLocaleString('pt-BR'),
- docs
+  spreadsheetTitle: SPREADSHEET_TITLE,
+  generatedAt: new Date().toLocaleString('pt-BR'),
+  docs
  });
 
  fs.writeFileSync(OUTPUT, html, 'utf8');
  console.log(`Dashboard gerada em: ${OUTPUT}`);
  console.log(`Total de notas: ${docs.length}`);
  console.log(`Sem solicitação: ${docs.filter(r => r.statusOperacional === 'Sem solicitação').length}`);
+ console.log(`Erro na solicitação: ${docs.filter(r => r.erroSolicitacao).length}`);
  console.log(`Com solicitação, sem pedido/medição: ${docs.filter(r => r.statusOperacional === 'Com solicitação, sem pedido/medição').length}`);
+ console.log(`Erro no pedido/medição: ${docs.filter(r => r.erroPedidoMedicao).length}`);
  console.log(`Pode lançar: ${docs.filter(r => r.statusOperacional === 'Pode lançar').length}`);
  console.log(`Lançado no Mega: ${docs.filter(r => r.statusOperacional === 'Lançado no Mega').length}`);
 }
 
-main();
+main().catch(err => {
+ console.error(err);
+ process.exit(1);
+});
