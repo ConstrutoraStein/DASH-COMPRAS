@@ -356,7 +356,7 @@ body:before{content:'';position:fixed;inset:0;background-image:linear-gradient(r
 
  <div class="row2">
  <div class="card"><div class="section-title"><h2>Fluxo de entrada por dia</h2><span>Distribuição dentro do recorte atual</span></div><div class="bars" id="fluxoEntrada"></div></div>
- <div class="card"><div class="section-title"><h2>Ranking de obras críticas</h2><span>Obras com mais notas no recorte</span></div><div class="table-wrap"><table><thead><tr><th>Obra</th><th>Pendentes</th><th>Sem solicitação</th><th>Sem pedido</th><th>Pode lançar</th><th class="result-col">Lançado</th></tr></thead><tbody id="rankingBody"></tbody></table></div></div>
+ <div class="card"><div class="section-title"><h2>Ranking de obras críticas</h2><span>Obras com mais notas no recorte</span></div><div class="table-wrap"><table><thead><tr><th>Obra</th><th>Pendentes</th><th>Sem solicitação</th><th>Erro solicitação</th><th>Sem pedido</th><th>Erro pedido</th><th>Pode lançar</th><th class="result-col">Lançado</th></tr></thead><tbody id="rankingBody"></tbody></table></div></div>
  </div>
 
  <div class="row">
@@ -368,6 +368,7 @@ body:before{content:'';position:fixed;inset:0;background-image:linear-gradient(r
 const RAW_DOCS = ${JSON.stringify(data.docs)};
 const fmtMoney = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
 const toDateInput = s => { if(!s) return ''; const p=s.split('/'); return p.length===3 ? [p[2], p[1].padStart(2,'0'), p[0].padStart(2,'0')].join('-') : ''; };
+const fromIsoToBr = iso => { if(!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return ''; const parts = iso.split('-'); return parts[2] + '/' + parts[1] + '/' + parts[0]; };
 function toIso(v){ if(!v||v.length!==10) return ''; const p=v.split('-'); return (p.length===3&&p[0].length===2&&p[1].length===2&&p[2].length===4) ? p[2]+'-'+p[1]+'-'+p[0] : ''; }
 function normalizeDateInput(el){ const digits = String(el.value || '').replace(/\D/g,'').slice(0,8); if (!digits) { el.value = ''; return; } if (digits.length <= 2) { el.value = digits; return; } if (digits.length <= 4) { el.value = digits.slice(0,2) + '-' + digits.slice(2); return; } el.value = digits.slice(0,2) + '-' + digits.slice(2,4) + '-' + digits.slice(4,8); }
 const byCount = (arr, keyFn) => { const m = new Map(); arr.forEach(r => { const k = keyFn(r); m.set(k,(m.get(k)||0)+1); }); return Array.from(m.entries()).map(([key,value])=>({key,value})); };
@@ -431,22 +432,24 @@ function render(){
  const obras = obrasRank.slice(0,8);
  renderBars('volumePorObra', obras, 'Nenhuma nota encontrada para o recorte atual.');
 
- const fluxo = byCount(docs.filter(r => r.dataEmissaoBr), r => r.dataEmissaoBr).sort((a,b)=>toDateInput(a.key).localeCompare(toDateInput(b.key))).slice(-10);
+ const fluxo = byCount(docs.filter(r => r.dataEmissaoIso), r => r.dataEmissaoIso).sort((a,b)=>a.key.localeCompare(b.key)).slice(-10).map(x => ({ key: fromIsoToBr(x.key), value: x.value }));
  renderBars('fluxoEntrada', fluxo, 'Sem documentos com data válida nesse recorte.');
 
  const rankingMap = new Map();
  docsComObraValida.forEach(r => {
  const key = r.obra;
- const item = rankingMap.get(key) || {obra:key,totalAtivo:0,semSolicitacao:0,semPedido:0,podeLancar:0,lancado:0};
+ const item = rankingMap.get(key) || {obra:key,totalAtivo:0,semSolicitacao:0,erroSolicitacao:0,semPedido:0,erroPedido:0,podeLancar:0,lancado:0};
  if(r.statusOperacional !== 'Lançado no Mega') item.totalAtivo++;
  if(r.statusOperacional === 'Sem solicitação') item.semSolicitacao++;
+ if(r.erroSolicitacao) item.erroSolicitacao++;
  if(r.statusOperacional === 'Com solicitação, sem pedido/medição') item.semPedido++;
+ if(r.erroPedidoMedicao) item.erroPedido++;
  if(r.statusOperacional === 'Pode lançar') item.podeLancar++;
  if(r.statusOperacional === 'Lançado no Mega') item.lancado++;
  rankingMap.set(key,item);
  });
  const ranking = Array.from(rankingMap.values()).sort((a,b)=>b.totalAtivo-a.totalAtivo || b.lancado-a.lancado).slice(0,10);
- setHtml('rankingBody', ranking.length ? ranking.map(r => '<tr><td>' + r.obra + '</td><td>' + r.totalAtivo + '</td><td>' + r.semSolicitacao + '</td><td>' + r.semPedido + '</td><td>' + r.podeLancar + '</td><td class="result-col">' + r.lancado + '</td></tr>').join('') : emptyRow(6,'Sem dados para esse filtro.'));
+ setHtml('rankingBody', ranking.length ? ranking.map(r => '<tr><td>' + r.obra + '</td><td>' + r.totalAtivo + '</td><td>' + r.semSolicitacao + '</td><td>' + r.erroSolicitacao + '</td><td>' + r.semPedido + '</td><td>' + r.erroPedido + '</td><td>' + r.podeLancar + '</td><td class="result-col">' + r.lancado + '</td></tr>').join('') : emptyRow(8,'Sem dados para esse filtro.'));
 
  const contatoMap = new Map();
  docs.forEach(r => {
