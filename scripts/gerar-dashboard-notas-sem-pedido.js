@@ -411,9 +411,10 @@ function render(){
 
  const statusRank = [
  {key:'Sem solicitação', value:semSolicitacao.length},
+ {key:'Erro na solicitação', value:erroSolicitacao.length},
  {key:'Com solicitação, sem pedido/medição', value:semPedido.length},
- {key:'Liberado para lançar', value:podeLancar.length},
- {key:'Lançado no Mega', value:lancado.length}
+ {key:'Erro no pedido/medição', value:erroPedido.length},
+ {key:'Liberado para lançar', value:podeLancar.length}
  ].sort((a,b)=>b.value-a.value);
  setText('gargaloPrincipal', statusRank[0]?.key || '-');
 
