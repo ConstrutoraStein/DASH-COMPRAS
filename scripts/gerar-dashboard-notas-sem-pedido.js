@@ -143,8 +143,9 @@ function normalizeObra(sheet, obra) {
 function classifyStatus(rec) {
  const tipo = norm(rec.tipoLancamento).toUpperCase();
  if (rec.lancamentoNf) return 'Lançado no Mega';
- if (tipo === 'LIVRE') return 'Pode lançar';
- if (rec.solicitacao && rec.pedidoMedicao) return 'Pode lançar';
+ if (rec.erroPedidoMedicao) return 'Erro no pedido/medição';
+ if ((tipo === 'LIVRE' || (rec.solicitacao && rec.pedidoMedicao)) && !rec.erroPedidoMedicao) return 'Liberado para lançar';
+ if (rec.erroSolicitacao) return 'Erro na solicitação';
  if (rec.solicitacao && !rec.pedidoMedicao) return 'Com solicitação, sem pedido/medição';
  return 'Sem solicitação';
 }
@@ -202,7 +203,7 @@ function loadLegacyDocs(sheet, rows, contactsByObra, emailsByEngineer, today) {
    erroSolicitacao: false,
    erroPedidoMedicao: false
   };
-  rec.statusOperacional = solicitacao ? 'Com solicitação, sem pedido/medição' : 'Sem solicitação';
+  rec.statusOperacional = classifyStatus(rec);
   rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
   rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
   docs.push(rec);
@@ -264,14 +265,14 @@ async function loadDocs(contactData) {
     erroSolicitacao: false,
     erroPedidoMedicao: false
    };
-   rec.statusOperacional = classifyStatus(rec);
-   rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
-   rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
    const f = colorFlags.get(sheet + '::' + (idx + 2));
    if (f) {
     rec.erroSolicitacao = !!f.erroSolicitacao;
     rec.erroPedidoMedicao = !!f.erroPedidoMedicao;
    }
+   rec.statusOperacional = classifyStatus(rec);
+   rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
+   rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
    docs.push(rec);
   });
  }
@@ -291,7 +292,7 @@ function buildHtml(data) {
 body:before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:24px 24px;pointer-events:none;mask-image:linear-gradient(180deg,rgba(0,0,0,.55),transparent 92%)}
 .container{position:relative;max-width:1440px;margin:0 auto;padding:30px}.hero{display:flex;justify-content:space-between;gap:20px;align-items:stretch;flex-wrap:wrap;margin-bottom:22px}.hero-main,.hero-side,.card{position:relative;background:linear-gradient(180deg,rgba(13,27,49,.92),rgba(7,14,27,.96));border:1px solid var(--line);box-shadow:var(--shadow);backdrop-filter:blur(14px);border-radius:28px}.hero-main{flex:1 1 850px;padding:28px;overflow:hidden}.hero-side{flex:0 0 290px;padding:24px;display:flex;flex-direction:column;justify-content:space-between}.hero h1{margin:0 0 10px;font-size:40px;line-height:1.05;letter-spacing:-.03em}.hero p{margin:0;color:var(--muted-2);max-width:860px;font-size:15px;line-height:1.6}.hero-meta{margin-top:18px;display:flex;gap:12px;flex-wrap:wrap}.hero-pill,.filter-note{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid var(--line-soft);font-size:13px;color:#dbe6f5}.stamp-title{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.stamp-value{font-size:24px;font-weight:800;line-height:1.15}.stamp-sub{margin-top:10px;color:var(--muted-2);font-size:13px;line-height:1.5}
 .filter-bar{display:grid;grid-template-columns:minmax(220px,280px) minmax(180px,1fr) minmax(180px,1fr) auto;gap:12px;align-items:start;margin-bottom:12px}.filter-group label{display:block;font-size:11px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em}.filter-group input{width:100%;padding:10px 12px;border-radius:12px;background:#0a1628;color:var(--text);border:1px solid var(--line-soft);outline:none;min-height:42px}.btn{padding:11px 16px;border-radius:12px;border:1px solid rgba(96,165,250,.24);background:linear-gradient(90deg,rgba(34,211,238,.18),rgba(96,165,250,.18));color:var(--text);font-weight:700;cursor:pointer;min-height:42px}.company-list{display:flex;flex-direction:column;gap:4px}.company-item{position:relative;display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:8px;cursor:pointer;font-size:11.5px;font-weight:600;letter-spacing:.04em;color:rgba(219,230,245,.7);border:1px solid transparent;transition:background .15s,border-color .15s,color .15s;user-select:none}.company-item::before{content:'';flex:0 0 7px;height:7px;border-radius:50%;background:rgba(148,163,184,.35);transition:background .15s,box-shadow .15s}.company-item:hover{background:rgba(56,189,248,.06);border-color:rgba(56,189,248,.15);color:rgba(219,230,245,.9)}.company-item input[type=checkbox]{position:absolute;opacity:0;width:0;height:0;pointer-events:none}.company-item:has(input:checked){background:linear-gradient(90deg,rgba(6,182,212,.15),rgba(56,189,248,.08));border-color:rgba(6,182,212,.35);color:#e2f0ff}.company-item:has(input:checked)::before{background:rgba(6,182,212,.9);box-shadow:0 0 6px rgba(6,182,212,.6)}
-.grid{display:grid;gap:16px}.kpis{grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin-bottom:18px}.card{padding:20px;overflow:hidden}.card:before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.04),transparent 30%,transparent 70%,rgba(255,255,255,.02));pointer-events:none}.card.kpi:after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--cyan),var(--blue),var(--violet))}.label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;font-weight:700}.metric{font-size:clamp(32px,3vw,46px);font-weight:900;letter-spacing:-.04em;line-height:1.02;word-break:break-word;overflow-wrap:anywhere}.hint{margin-top:8px;font-size:13px;color:var(--muted-2);line-height:1.5}.submetric{margin-top:12px;font-size:12px;color:var(--muted)}
+.grid{display:grid;gap:16px}.kpis{grid-template-columns:repeat(auto-fit,minmax(240px,1fr));margin-bottom:18px}.card{padding:20px;overflow:hidden}.card:before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.04),transparent 30%,transparent 70%,rgba(255,255,255,.02));pointer-events:none}.card.kpi:after{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--cyan),var(--blue),var(--violet))}.card.kpi.valor-total{grid-column:span 2;min-width:0}.label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;font-weight:700}.metric{font-size:clamp(32px,3vw,46px);font-weight:900;letter-spacing:-.04em;line-height:1.02;word-break:break-word;overflow-wrap:anywhere}.metric.money{font-size:clamp(26px,2.2vw,38px);line-height:1.1}.hint{margin-top:8px;font-size:13px;color:var(--muted-2);line-height:1.5}.submetric{margin-top:12px;font-size:12px;color:var(--muted)}
 .row,.row2{display:grid;gap:16px;margin-bottom:16px}.row{grid-template-columns:1.25fr .95fr}.row2{grid-template-columns:.9fr 1.3fr}.section-title{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}.section-title h2{margin:0;font-size:18px;letter-spacing:-.02em}.section-title span{font-size:12px;color:var(--muted)}.bars{display:grid;gap:14px}.bar-row{display:grid;grid-template-columns:170px 1fr 46px;gap:12px;align-items:center}.bar-label{font-size:13px;color:#e2e8f0;font-weight:600}.bar{height:14px;background:linear-gradient(180deg,#0d1930,#152647);border:1px solid rgba(255,255,255,.04);border-radius:999px;overflow:hidden}.fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--cyan) 0%,var(--blue) 55%,var(--violet) 100%)}.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mini,.callout{padding:16px;border-radius:18px;background:linear-gradient(180deg,#132440,#0f1d34);border:1px solid var(--line-soft)}.chips{display:flex;flex-wrap:wrap;gap:10px}.chip{padding:11px 13px;border-radius:14px;background:linear-gradient(180deg,#12213b,#0e1b30);border:1px solid var(--line-soft);font-size:13px;color:#d7e3f4;min-height:44px;display:flex;align-items:center}.table-wrap{overflow:auto;border-radius:18px;border:1px solid rgba(255,255,255,.04)}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:12px 10px;border-bottom:1px solid rgba(148,163,184,.10);text-align:left;vertical-align:top}th{color:var(--muted);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.06em;background:rgba(255,255,255,.02)}tbody tr:hover{background:rgba(255,255,255,.025)}.empty{padding:22px;color:var(--muted-2)}th.result-col,td.result-col{background:rgba(34,197,94,.10)!important;color:#dcfce7;font-weight:800}th.result-col{box-shadow:inset 0 -2px 0 rgba(34,197,94,.35)}
 @media(max-width:1050px){.row,.row2,.filter-bar{grid-template-columns:1fr}.split{grid-template-columns:1fr}.hero h1{font-size:32px}.hero-side{flex:1 1 100%}}
 </style>
@@ -326,14 +327,14 @@ body:before{content:'';position:fixed;inset:0;background-image:linear-gradient(r
  </div>
 
  <div class="grid kpis">
- <div class="card kpi"><div class="label">Total de notas</div><div class="metric" id="kpiTotal">-</div><div class="hint">Volume total no recorte atual.</div><div class="submetric">Visão consolidada da base filtrada.</div></div>
+ <div class="card kpi"><div class="label">Total de notas com problema</div><div class="metric" id="kpiTotal">-</div><div class="hint">Volume total no recorte atual.</div><div class="submetric">Visão consolidada da base filtrada.</div></div>
  <div class="card kpi"><div class="label">Sem solicitação</div><div class="metric" id="kpiSemSolicitacao">-</div><div class="hint">Notas sem avanço inicial no fluxo.</div><div class="submetric">Gargalo primário da esteira.</div></div>
  <div class="card kpi" style="border-color:rgba(239,68,68,.35);box-shadow:0 20px 50px rgba(239,68,68,.10)"><div class="label" style="color:#fca5a5">Erro na solicitação</div><div class="metric" id="kpiErroSolicitacao">-</div><div class="hint">Qualquer vermelho na coluna Solicitação.</div><div class="submetric">Sinalização visual de erro na etapa.</div></div>
  <div class="card kpi"><div class="label">Com solicitação, sem pedido/medição</div><div class="metric" id="kpiSemPedido">-</div><div class="hint">Já entraram no fluxo, mas ainda sem pedido/medição.</div><div class="submetric">Backlog intermediário da operação.</div></div>
  <div class="card kpi" style="border-color:rgba(239,68,68,.35);box-shadow:0 20px 50px rgba(239,68,68,.10)"><div class="label" style="color:#fca5a5">Erro no pedido/medição</div><div class="metric" id="kpiErroPedido">-</div><div class="hint">Qualquer vermelho na coluna Pedido/Medição.</div><div class="submetric">Sinalização visual de erro na etapa.</div></div>
- <div class="card kpi"><div class="label">Pode lançar</div><div class="metric" id="kpiPodeLancar">-</div><div class="hint">Solicitação e pedido/medição preenchidos, sem lançamento NF ou fluxo LIVRE pronto.</div><div class="submetric">Prontos para lançamento no Mega.</div></div>
+ <div class="card kpi"><div class="label">Liberado para lançar</div><div class="metric" id="kpiPodeLancar">-</div><div class="hint">Solicitação e pedido/medição preenchidos, sem lançamento NF ou fluxo LIVRE pronto.</div><div class="submetric">Prontos para lançamento no Mega.</div></div>
  <div class="card kpi"><div class="label">Lançado no Mega</div><div class="metric" id="kpiLancado">-</div><div class="hint">Documentos com a coluna Lançamento NF preenchida.</div><div class="submetric">Etapa concluída dentro do ERP.</div></div>
- <div class="card kpi"><div class="label">Valor total monitorado</div><div class="metric" id="kpiValor">-</div><div class="hint">Soma financeira do recorte atual.</div><div class="submetric">Mede exposição do universo filtrado.</div></div>
+ <div class="card kpi valor-total"><div class="label">Valor total monitorado</div><div class="metric money" id="kpiValor">-</div><div class="hint">Soma financeira do recorte atual.</div><div class="submetric">Mede exposição do universo filtrado.</div></div>
  </div>
 
  <div class="row">
@@ -392,11 +393,11 @@ function renderBars(targetId, items, emptyText){ if(!items.length){ setHtml(targ
 function render(){
  const periodo = getPeriodo();
  const docs = filteredDocs();
- const erroSolicitacao = docs.filter(r => r.erroSolicitacao);
- const erroPedido = docs.filter(r => r.erroPedidoMedicao);
+ const erroSolicitacao = docs.filter(r => r.statusOperacional === 'Erro na solicitação');
+ const erroPedido = docs.filter(r => r.statusOperacional === 'Erro no pedido/medição');
  const semSolicitacao = docs.filter(r => r.statusOperacional === 'Sem solicitação');
  const semPedido = docs.filter(r => r.statusOperacional === 'Com solicitação, sem pedido/medição');
- const podeLancar = docs.filter(r => r.statusOperacional === 'Pode lançar');
+ const podeLancar = docs.filter(r => r.statusOperacional === 'Liberado para lançar');
  const lancado = docs.filter(r => r.statusOperacional === 'Lançado no Mega');
 
  setText('kpiTotal', docs.length);
@@ -411,7 +412,7 @@ function render(){
  const statusRank = [
  {key:'Sem solicitação', value:semSolicitacao.length},
  {key:'Com solicitação, sem pedido/medição', value:semPedido.length},
- {key:'Pode lançar', value:podeLancar.length},
+ {key:'Liberado para lançar', value:podeLancar.length},
  {key:'Lançado no Mega', value:lancado.length}
  ].sort((a,b)=>b.value-a.value);
  setText('gargaloPrincipal', statusRank[0]?.key || '-');
@@ -446,10 +447,10 @@ function render(){
  const item = rankingMap.get(key) || {obra:key,totalAtivo:0,semSolicitacao:0,erroSolicitacao:0,semPedido:0,erroPedido:0,podeLancar:0,lancado:0};
  if(r.statusOperacional !== 'Lançado no Mega') item.totalAtivo++;
  if(r.statusOperacional === 'Sem solicitação') item.semSolicitacao++;
- if(r.erroSolicitacao) item.erroSolicitacao++;
+ if(r.statusOperacional === 'Erro na solicitação') item.erroSolicitacao++;
  if(r.statusOperacional === 'Com solicitação, sem pedido/medição') item.semPedido++;
- if(r.erroPedidoMedicao) item.erroPedido++;
- if(r.statusOperacional === 'Pode lançar') item.podeLancar++;
+ if(r.statusOperacional === 'Erro no pedido/medição') item.erroPedido++;
+ if(r.statusOperacional === 'Liberado para lançar') item.podeLancar++;
  if(r.statusOperacional === 'Lançado no Mega') item.lancado++;
  rankingMap.set(key,item);
  });
@@ -511,7 +512,7 @@ async function main() {
  console.log(`Erro na solicitação: ${docs.filter(r => r.erroSolicitacao).length}`);
  console.log(`Com solicitação, sem pedido/medição: ${docs.filter(r => r.statusOperacional === 'Com solicitação, sem pedido/medição').length}`);
  console.log(`Erro no pedido/medição: ${docs.filter(r => r.erroPedidoMedicao).length}`);
- console.log(`Pode lançar: ${docs.filter(r => r.statusOperacional === 'Pode lançar').length}`);
+ console.log(`Liberado para lançar: ${docs.filter(r => r.statusOperacional === 'Liberado para lançar').length}`);
  console.log(`Lançado no Mega: ${docs.filter(r => r.statusOperacional === 'Lançado no Mega').length}`);
 }
 
