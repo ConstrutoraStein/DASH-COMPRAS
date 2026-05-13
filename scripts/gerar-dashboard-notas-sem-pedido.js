@@ -26,7 +26,7 @@ const DATA_SHEETS = [
 function gogJson(args) {
  const finalArgs = [...args];
  if (!finalArgs.includes('--account')) finalArgs.push('--account', 'suporte.ti@cstein.com.br');
- const raw = execFileSync(GOG, finalArgs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+ const raw = execFileSync(GOG, finalArgs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 80 * 1024 * 1024 });
  return JSON.parse(raw);
 }
 
@@ -82,23 +82,25 @@ function isRed(c) {
 }
 
 async function loadColorFlags() {
- const ranges = DATA_SHEETS.map(s => 'ranges=' + encodeURIComponent(s + '!A1:Z5000')).join('&');
- const fields = encodeURIComponent('sheets(properties/title,data(rowData(values(userEnteredValue,effectiveFormat/backgroundColor))))');
- const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?includeGridData=true&${ranges}&fields=${fields}`;
- const json = await googleApiJson(url);
  const out = new Map();
- for (const sheet of json.sheets || []) {
-  const title = sheet.properties?.title || '';
-  const rows = sheet.data?.[0]?.rowData || [];
-  const head = (rows[0]?.values || []).map(v => String(v.userEnteredValue?.stringValue || '').trim());
-  const idxSol = head.findIndex(h => /SOLICITA/i.test(h));
-  const idxPed = head.findIndex(h => /PEDIDO|MEDI/i.test(h));
-  for (let r = 1; r < rows.length; r++) {
-   const vals = rows[r].values || [];
-   out.set(title + '::' + (r + 1), {
-    erroSolicitacao: idxSol >= 0 ? isRed(vals[idxSol]?.effectiveFormat?.backgroundColor) : false,
-    erroPedidoMedicao: idxPed >= 0 ? isRed(vals[idxPed]?.effectiveFormat?.backgroundColor) : false
-   });
+ for (const title of DATA_SHEETS) {
+  const json = gogJson(['sheets', 'read-format', SPREADSHEET_ID, `${title}!A1:Z5000`, '--json']);
+  const cells = json.formats || [];
+  const head = cells.filter(c => c.row === 1).sort((a,b) => a.col - b.col).map(c => norm(c.value));
+  const idxSol = head.findIndex(h => /SOLICITA/i.test(h)) + 1;
+  const idxPed = head.findIndex(h => /PEDIDO|MEDI/i.test(h)) + 1;
+  const rows = new Map();
+  for (const cell of cells) {
+   if (cell.row <= 1) continue;
+   if (cell.col !== idxSol && cell.col !== idxPed) continue;
+   const row = rows.get(cell.row) || { erroSolicitacao: false, erroPedidoMedicao: false };
+   const bg = cell.format?.backgroundColor || cell.format?.backgroundColorStyle?.rgbColor;
+   if (cell.col === idxSol) row.erroSolicitacao = isRed(bg);
+   if (cell.col === idxPed) row.erroPedidoMedicao = isRed(bg);
+   rows.set(cell.row, row);
+  }
+  for (const [rowNumber, flags] of rows) {
+   out.set(title + '::' + rowNumber, flags);
   }
  }
  return out;
@@ -521,3 +523,4 @@ main().catch(err => {
  console.error(err);
  process.exit(1);
 });
+
