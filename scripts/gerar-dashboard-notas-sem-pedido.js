@@ -26,7 +26,7 @@ const DATA_SHEETS = [
 function gogJson(args) {
  const finalArgs = [...args];
  if (!finalArgs.includes('--account')) finalArgs.push('--account', 'suporte.ti@cstein.com.br');
- const raw = execFileSync(GOG, finalArgs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 80 * 1024 * 1024 });
+ const raw = execFileSync(GOG, finalArgs, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 });
  return JSON.parse(raw);
 }
 
