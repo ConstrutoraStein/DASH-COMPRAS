@@ -9,5 +9,6 @@ A publicação principal usa `index.html` para hospedagem estática.
 ## Arquivos
 
 - `index.html` — dashboard gerada pronta para publicação
-- `scripts/gerar-dashboard-notas-sem-pedido.js` — script gerador da dashboard
-- `update-dashboard.ps1` — script de atualização automática com commit e push
+- `scripts/gerar-dashboard-notas-sem-pedido.js` — leitura, normalização, deduplicação e geração da dashboard
+- `scripts/validate-dashboard.js` — reconcilia fonte, abas, categorias, duplicidades e campos críticos antes da publicação
+- `update-dashboard.ps1` — atualização automática com validação obrigatória, commit e push

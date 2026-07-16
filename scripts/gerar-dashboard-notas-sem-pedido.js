@@ -32,29 +32,48 @@ function gogJson(args) {
 
 function norm(v) { return String(v ?? '').trim(); }
 function slug(v) { return norm(v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+function canonHeader(v) { return slug(v).replace(/[^a-z0-9]+/g, ' ').trim(); }
 function parseMoney(v) {
- const s = norm(v).replace(/R\$/gi, '').replace(/\./g, '').replace(',', '.').replace(/\s+/g, '');
+ if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+ let s = norm(v).replace(/R\$/gi, '').replace(/\s+/g, '').replace(/[^0-9,.-]/g, '');
+ if (!s) return 0;
+ const lastComma = s.lastIndexOf(','), lastDot = s.lastIndexOf('.');
+ if (lastComma >= 0 && lastDot >= 0) {
+  const decimal = lastComma > lastDot ? ',' : '.';
+  s = s.replace(decimal === ',' ? /\./g : /,/g, '').replace(decimal, '.');
+ } else if (lastComma >= 0) s = s.replace(/\./g, '').replace(',', '.');
+ else if (lastDot >= 0 && ![1,2].includes(s.length - lastDot - 1)) s = s.replace(/\./g, '');
  const n = Number.parseFloat(s);
  return Number.isFinite(n) ? n : 0;
 }
 function parseDateBR(v) {
  const s = norm(v);
+ if (/^\d{5}(?:\.\d+)?$/.test(s)) {
+  const serial = Number(s);
+  const utc = new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86400000);
+  return new Date(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
+ }
  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
  if (!m) return null;
- return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+ const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+ return d.getFullYear() === Number(m[3]) && d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[1]) ? d : null;
 }
 function daysDiff(a, b) { return Math.floor((a - b) / 86400000); }
 function fmtMoney(v) { return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0); }
-function fmtDate(d) { return d ? new Intl.NumberFormat('pt-BR').format(d) : '-'; }
+function fmtDate(d) { return d ? new Intl.DateTimeFormat('pt-BR').format(d) : '-'; }
 function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-function buildMapFromRows(values) {
- const header = values[0] || [];
- return (values.slice(1) || []).map(row => {
-  const obj = {};
-  for (let i = 0; i < header.length; i++) obj[norm(header[i])] = norm(row[i]);
-  return obj;
- });
+function buildRows(values) {
+ const headers = (values[0] || []).map((value, index) => ({ key: canonHeader(value), index }));
+ return (values.slice(1) || []).map((valuesRow, index) => ({
+  __rowNumber: index + 2,
+  __cells: headers.map(h => ({ ...h, value: norm(valuesRow[h.index]) }))
+ }));
+}
+function field(row, aliases, { last = false } = {}) {
+ const wanted = new Set(aliases.map(canonHeader));
+ const matches = row.__cells.filter(c => wanted.has(c.key) && c.value);
+ return matches.length ? (last ? matches[matches.length - 1] : matches[0]).value : '';
 }
 
 function googleApiJson(url) {
@@ -84,11 +103,11 @@ function isRed(c) {
 async function loadColorFlags() {
  const out = new Map();
  for (const title of DATA_SHEETS) {
-  const json = gogJson(['sheets', 'read-format', SPREADSHEET_ID, `${title}!A1:Z5000`, '--json']);
+  const json = gogJson(['sheets', 'read-format', SPREADSHEET_ID, `${title}!A:Z`, '--json']);
   const cells = json.formats || [];
-  const head = cells.filter(c => c.row === 1).sort((a,b) => a.col - b.col).map(c => norm(c.value));
-  const idxSol = head.findIndex(h => /SOLICITA/i.test(h)) + 1;
-  const idxPed = head.findIndex(h => /PEDIDO|MEDI/i.test(h)) + 1;
+  const head = cells.filter(c => c.row === 1).sort((a,b) => a.col - b.col).map(c => ({ col:c.col, key:canonHeader(c.value) }));
+  const idxSol = head.find(h => ['solicitacao','numero solicitacao'].includes(h.key))?.col || -1;
+  const idxPed = head.find(h => ['pedido medicao','ped med'].includes(h.key))?.col || -1;
   const rows = new Map();
   for (const cell of cells) {
    if (cell.row <= 1) continue;
@@ -142,13 +161,20 @@ function normalizeObra(sheet, obra) {
  return s;
 }
 
+function meaningful(v) {
+ const x = slug(v).replace(/\s+/g, ' ');
+ return !!x && !['-', 'x', 'n/a', 'na', 'nao se aplica', 'sem info'].includes(x);
+}
+function isOutOfFlow(rec) {
+ return /\b(cancelad[ao]|devolucao|devolvida|reembolso|remessa)\b/.test(slug([rec.tipoLancamento, rec.lancamentoNf, rec.observacao].join(' ')));
+}
+function isLaunched(v) { return meaningful(v) && !/cancel|devol|reembols|remessa/.test(slug(v)); }
 function classifyStatus(rec) {
  const tipo = norm(rec.tipoLancamento).toUpperCase();
- if (rec.lancamentoNf) return 'Lançado no Mega';
- if (rec.erroPedidoMedicao) return 'Erro no pedido/medição';
- if ((tipo === 'LIVRE' || (rec.solicitacao && rec.pedidoMedicao)) && !rec.erroPedidoMedicao) return 'Liberado para lançar';
- if (rec.erroSolicitacao) return 'Erro na solicitação';
- if (rec.solicitacao && !rec.pedidoMedicao) return 'Com solicitação, sem pedido/medição';
+ if (isOutOfFlow(rec)) return 'Fora do fluxo';
+ if (isLaunched(rec.lancamentoNf)) return 'Lançado no Mega';
+ if (tipo === 'LIVRE' || (meaningful(rec.solicitacao) && meaningful(rec.pedidoMedicao))) return 'Liberado para lançar';
+ if (meaningful(rec.solicitacao) && !meaningful(rec.pedidoMedicao)) return 'Com solicitação, sem pedido/medição';
  return 'Sem solicitação';
 }
 
@@ -157,7 +183,7 @@ function isValidOperationalObra(v, empresa = '') {
  if (!s) return false;
  const x = slug(s);
  const empresaSlug = slug(empresa);
- const bloqueios = ['sem obra', 'sem info', 'verificando', 'escritorio', 'stein', 'ita', 'vertikal', 'costa esmeralda', 'els participacoes', 'hasa 13'];
+ const bloqueios = ['sem obra', 'sem info', 'verificando', 'escritorio', 'stein', 'ita', 'vertikal', 'costa esmeralda', 'els participacoes', 'hasa 13', 'stein e bertemes', 'stein litoral', 'stein alameda', 'cosmopolitan'];
  if (bloqueios.includes(x)) return false;
  if (empresaSlug && x === empresaSlug) return false;
  return true;
@@ -169,116 +195,102 @@ function displayObra(v, empresa) {
  return s;
 }
 
-function loadLegacyDocs(sheet, rows, contactsByObra, emailsByEngineer, today) {
- const docs = [];
- for (const row of rows) {
-  const notaFiscal = pick(row, ['Nota Fiscal']);
-  const fornecedor = pick(row, ['Razão Social']);
-  const dataEmissaoRaw = pick(row, ['Data de Emissão']);
-  if (!notaFiscal && !fornecedor && !dataEmissaoRaw) continue;
-  const obra = normalizeObra(sheet, pick(row, ['OBRA']) || sheet);
-  const contact = contactsByObra.get(slug(obra)) || {};
-  const engineerName = pick(row, ['ENGENHEIRO']) || contact.engenheiro || '';
-  const engineerEmail = emailsByEngineer.get(slug(engineerName)) || emailsByEngineer.get(slug(engineerName).split(' ')[0]) || '';
-  const dataEmissao = parseDateBR(dataEmissaoRaw);
-  const daysLate = dataEmissao ? Math.max(0, daysDiff(today, dataEmissao) - 2) : 0;
-  const solicitacao = pick(row, ['NÚMERO SOLICITAÇÃO']);
-  const rec = {
-   aba: sheet,
-   tipoNota: pick(row, ['Status']),
-   dataEmissao,
-   dataEmissaoRaw,
-   notaFiscal,
-   cnpjCpf: pick(row, ['CNPJ / CPF']),
-   razaoSocial: fornecedor,
-   valor: parseMoney(pick(row, ['Valor Total'])),
-   obra: displayObra(obra, sheet),
-   tipoLancamento: '',
-   solicitacao,
-   pedidoMedicao: '',
-   lancamentoNf: '',
-   observacao: '',
-   engenheiro: engineerName,
-   contatoFone: contact.fone || '',
-   contatoEmail: engineerEmail || '',
-   daysLate,
-   erroSolicitacao: false,
-   erroPedidoMedicao: false
-  };
-  rec.statusOperacional = classifyStatus(rec);
-  rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
-  rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
-  docs.push(rec);
+function recordFromRow(sheet, row, contactData, today, colorFlags) {
+ const notaFiscal = field(row, ['NOTA FISCAL'], { last:true });
+ const fornecedor = field(row, ['RAZÃO SOCIAL']);
+ const dataEmissaoRaw = field(row, ['DATA DE EMISSÃO', 'DATA EMISSÃO']);
+ if (!notaFiscal && !fornecedor && !dataEmissaoRaw) return null;
+ const obra = normalizeObra(sheet, field(row, ['OBRA']) || sheet);
+ const contact = contactData.contactsByObra.get(slug(obra)) || {};
+ const dataEmissao = parseDateBR(dataEmissaoRaw);
+ const engineerName = field(row, ['ENGENHEIRO']) || contact.engenheiro || '';
+ const engineerEmail = contactData.emailsByEngineer.get(slug(engineerName)) || contactData.emailsByEngineer.get(slug(engineerName).split(' ')[0]) || '';
+ const f = colorFlags.get(sheet + '::' + row.__rowNumber) || {};
+ const rec = {
+  aba: sheet,
+  linhaOrigem: row.__rowNumber,
+  tipoNota: field(row, ['TIPO DE NOTA', 'STATUS']),
+  dataEmissaoRaw,
+  notaFiscal,
+  cnpjCpf: field(row, ['CNPJ / CPF', 'CNPJ CPF']),
+  razaoSocial: fornecedor,
+  valor: parseMoney(field(row, ['VALOR TOTAL'])),
+  obra: displayObra(obra, sheet),
+  tipoLancamento: field(row, ['TIPO LANÇAMENTO']),
+  solicitacao: field(row, ['SOLICITAÇÃO', 'NÚMERO SOLICITAÇÃO']),
+  pedidoMedicao: field(row, ['PEDIDO/MEDIÇÃO', 'PEDIDO / MEDIÇÃO', 'PED/MED']),
+  lancamentoNf: field(row, ['LANÇAMENTO NF', 'LANÇAMENTO DE NF', 'LANÇAMENTO']),
+  observacao: field(row, ['OBSERVAÇÃO', 'OBSERVAÇÕES']),
+  engenheiro: engineerName,
+  contatoFone: contact.fone || '',
+  contatoEmail: engineerEmail || '',
+  daysLate: dataEmissao ? Math.max(0, daysDiff(today, dataEmissao) - 2) : 0,
+  erroSolicitacao: !!f.erroSolicitacao,
+  erroPedidoMedicao: !!f.erroPedidoMedicao
+ };
+ rec.statusOperacional = classifyStatus(rec);
+ rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
+ rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
+ return rec;
+}
+
+function duplicateKey(rec) {
+ if (!rec.notaFiscal || !rec.razaoSocial || !rec.dataEmissaoIso) return '';
+ return [rec.aba, rec.notaFiscal, rec.razaoSocial, rec.dataEmissaoIso, Number(rec.valor || 0).toFixed(2)].map(slug).join('|');
+}
+
+function deduplicateDocs(sourceDocs) {
+ const byKey = new Map(), docs = [], duplicateGroups = [];
+ for (const rec of sourceDocs) {
+  const key = duplicateKey(rec);
+  if (!key || !byKey.has(key)) {
+   rec.linhasOrigem = [rec.linhaOrigem];
+   rec.ocorrenciasOrigem = 1;
+   rec.errosSolicitacaoOrigem = rec.erroSolicitacao ? 1 : 0;
+   rec.errosPedidoOrigem = rec.erroPedidoMedicao ? 1 : 0;
+   docs.push(rec);
+   if (key) byKey.set(key, rec);
+   continue;
+  }
+  const kept = byKey.get(key);
+  kept.linhasOrigem.push(rec.linhaOrigem);
+  kept.ocorrenciasOrigem++;
+  kept.errosSolicitacaoOrigem += rec.erroSolicitacao ? 1 : 0;
+  kept.errosPedidoOrigem += rec.erroPedidoMedicao ? 1 : 0;
+  kept.erroSolicitacao ||= rec.erroSolicitacao;
+  kept.erroPedidoMedicao ||= rec.erroPedidoMedicao;
+  const score = x => [x.lancamentoNf,x.pedidoMedicao,x.solicitacao,x.observacao,x.engenheiro].filter(meaningful).length;
+  if (score(rec) > score(kept) || (score(rec) === score(kept) && rec.linhaOrigem > kept.linhaOrigem)) {
+   for (const name of ['tipoNota','obra','tipoLancamento','solicitacao','pedidoMedicao','lancamentoNf','observacao','engenheiro','contatoFone','contatoEmail']) if (rec[name]) kept[name] = rec[name];
+   kept.statusOperacional = classifyStatus(kept);
+  }
+  duplicateGroups.push({ aba:rec.aba, notaFiscal:rec.notaFiscal, linhas:[...kept.linhasOrigem] });
  }
- return docs;
+ return { docs, duplicateRowsRemoved: sourceDocs.length - docs.length, duplicateGroups };
 }
 
 async function loadDocs(contactData) {
- const docs = [];
- const today = new Date();
- const colorFlags = await loadColorFlags();
+ const sourceDocs = [], today = new Date(), colorFlags = await loadColorFlags();
+ const sheetStats = [];
  for (const sheet of DATA_SHEETS) {
-  const json = gogJson(['sheets', 'get', SPREADSHEET_ID, `${sheet}!A1:Z5000`, '--json']);
-  const rows = buildMapFromRows(json.values || []);
-  const headerKeys = Object.keys(rows[0] || {});
-  const isLegacy = headerKeys.includes('NÚMERO SOLICITAÇÃO') && !headerKeys.includes('LANÇAMENTO NF');
-  if (isLegacy) {
-   const legacyDocs = loadLegacyDocs(sheet, rows, contactData.contactsByObra, contactData.emailsByEngineer, today);
-   legacyDocs.forEach((rec, idx) => {
-    const f = colorFlags.get(sheet + '::' + (idx + 2));
-    if (f) {
-     rec.erroSolicitacao = !!f.erroSolicitacao;
-     rec.erroPedidoMedicao = !!f.erroPedidoMedicao;
-    }
-   });
-   docs.push(...legacyDocs);
-   continue;
+  const json = gogJson(['sheets', 'get', SPREADSHEET_ID, `${sheet}!A:Z`, '--json']);
+  const rows = buildRows(json.values || []);
+  let included = 0;
+  for (const row of rows) {
+   const rec = recordFromRow(sheet, row, contactData, today, colorFlags);
+   if (rec) { sourceDocs.push(rec); included++; }
   }
-  rows.forEach((row, idx) => {
-   const notaFiscal = pick(row, ['NOTA FISCAL']);
-   const fornecedor = pick(row, ['RAZÃO SOCIAL']);
-   const dataEmissaoRaw = pick(row, ['DATA DE EMISSÃO']);
-   if (!notaFiscal && !fornecedor && !dataEmissaoRaw) return;
-   const obra = normalizeObra(sheet, pick(row, ['OBRA']) || sheet);
-   const contact = contactData.contactsByObra.get(slug(obra)) || {};
-   const dataEmissao = parseDateBR(dataEmissaoRaw);
-   const daysLate = dataEmissao ? Math.max(0, daysDiff(today, dataEmissao) - 2) : 0;
-   const engineerName = pick(row, ['ENGENHEIRO']) || contact.engenheiro || '';
-   const engineerEmail = contactData.emailsByEngineer.get(slug(engineerName)) || contactData.emailsByEngineer.get(slug(engineerName).split(' ')[0]) || '';
-   const rec = {
-    aba: sheet,
-    tipoNota: pick(row, ['TIPO DE NOTA']),
-    dataEmissao,
-    dataEmissaoRaw,
-    notaFiscal,
-    cnpjCpf: pick(row, ['CNPJ / CPF']),
-    razaoSocial: fornecedor,
-    valor: parseMoney(pick(row, ['VALOR TOTAL'])),
-    obra: displayObra(obra, sheet),
-    tipoLancamento: pick(row, ['TIPO LANÇAMENTO']),
-    solicitacao: pick(row, ['SOLICITAÇÃO']),
-    pedidoMedicao: pick(row, ['PEDIDO/MEDIÇÃO']),
-    lancamentoNf: pick(row, ['LANÇAMENTO NF']),
-    observacao: pick(row, ['OBSERVAÇÃO']),
-    engenheiro: engineerName,
-    contatoFone: contact.fone || '',
-    contatoEmail: engineerEmail || '',
-    daysLate,
-    erroSolicitacao: false,
-    erroPedidoMedicao: false
-   };
-   const f = colorFlags.get(sheet + '::' + (idx + 2));
-   if (f) {
-    rec.erroSolicitacao = !!f.erroSolicitacao;
-    rec.erroPedidoMedicao = !!f.erroPedidoMedicao;
-   }
-   rec.statusOperacional = classifyStatus(rec);
-   rec.dataEmissaoIso = dataEmissao ? new Date(dataEmissao.getTime() - dataEmissao.getTimezoneOffset()*60000).toISOString().slice(0,10) : '';
-   rec.dataEmissaoBr = dataEmissao ? fmtDate(dataEmissao) : '';
-   docs.push(rec);
-  });
+  sheetStats.push({ sheet, included });
  }
- return docs;
+ const result = deduplicateDocs(sourceDocs);
+ return {
+  ...result,
+  sourceRows: sourceDocs.length,
+  sheetStats,
+  missingDates: result.docs.filter(r => !r.dataEmissaoIso).length,
+  missingInvoices: result.docs.filter(r => !r.notaFiscal).length,
+  missingSuppliers: result.docs.filter(r => !r.razaoSocial).length
+ };
 }
 
 function buildHtml(data) {
@@ -329,14 +341,17 @@ body:before{content:'';position:fixed;inset:0;background-image:linear-gradient(r
  </div>
 
  <div class="grid kpis">
- <div class="card kpi"><div class="label">Total de notas com problema</div><div class="metric" id="kpiTotal">-</div><div class="hint">Volume total no recorte atual.</div><div class="submetric">Visão consolidada da base filtrada.</div></div>
+ <div class="card kpi"><div class="label">Total de notas únicas monitoradas</div><div class="metric" id="kpiTotal">-</div><div class="hint">Registros únicos no recorte atual.</div><div class="submetric">Duplicidades exatas são consolidadas.</div></div>
  <div class="card kpi"><div class="label">Sem solicitação</div><div class="metric" id="kpiSemSolicitacao">-</div><div class="hint">Notas sem avanço inicial no fluxo.</div><div class="submetric">Gargalo primário da esteira.</div></div>
- <div class="card kpi" style="border-color:rgba(239,68,68,.35);box-shadow:0 20px 50px rgba(239,68,68,.10)"><div class="label" style="color:#fca5a5">Erro na solicitação</div><div class="metric" id="kpiErroSolicitacao">-</div><div class="hint">Qualquer vermelho na coluna Solicitação.</div><div class="submetric">Sinalização visual de erro na etapa.</div></div>
+ <div class="card kpi" style="border-color:rgba(239,68,68,.35);box-shadow:0 20px 50px rgba(239,68,68,.10)"><div class="label" style="color:#fca5a5">Erro na solicitação</div><div class="metric" id="kpiErroSolicitacao">-</div><div class="hint">Células vermelhas na coluna Solicitação.</div><div class="submetric">Flag transversal: não some quando a nota avança.</div></div>
  <div class="card kpi"><div class="label">Com solicitação, sem pedido/medição</div><div class="metric" id="kpiSemPedido">-</div><div class="hint">Já entraram no fluxo, mas ainda sem pedido/medição.</div><div class="submetric">Backlog intermediário da operação.</div></div>
  <div class="card kpi" style="border-color:rgba(239,68,68,.35);box-shadow:0 20px 50px rgba(239,68,68,.10)"><div class="label" style="color:#fca5a5">Erro no pedido/medição</div><div class="metric" id="kpiErroPedido">-</div><div class="hint">Qualquer vermelho na coluna Pedido/Medição.</div><div class="submetric">Sinalização visual de erro na etapa.</div></div>
  <div class="card kpi"><div class="label">Liberado para lançar</div><div class="metric" id="kpiPodeLancar">-</div><div class="hint">Solicitação e pedido/medição preenchidos, sem lançamento NF ou fluxo LIVRE pronto.</div><div class="submetric">Prontos para lançamento no Mega.</div></div>
  <div class="card kpi"><div class="label">Lançado no Mega</div><div class="metric" id="kpiLancado">-</div><div class="hint">Documentos com a coluna Lançamento NF preenchida.</div><div class="submetric">Etapa concluída dentro do ERP.</div></div>
- <div class="card kpi valor-total"><div class="label">Valor total monitorado</div><div class="metric money" id="kpiValor">-</div><div class="hint">Soma financeira do recorte atual.</div><div class="submetric">Mede exposição do universo filtrado.</div></div>
+ <div class="card kpi"><div class="label">Fora do fluxo</div><div class="metric" id="kpiForaFluxo">-</div><div class="hint">Canceladas, devolvidas, remessas e reembolsos.</div><div class="submetric">Não entram no valor parado.</div></div>
+ <div class="card kpi"><div class="label">Duplicidades consolidadas</div><div class="metric">${data.quality.duplicateRowsRemoved}</div><div class="hint">Linhas repetidas removidas do consolidado.</div><div class="submetric">Fonte lida: ${data.quality.sourceRows} linhas válidas.</div></div>
+ <div class="card kpi"><div class="label">Registros sem data</div><div class="metric">${data.quality.missingDates}</div><div class="hint">Continuam no total, mas não entram em filtro temporal.</div><div class="submetric">Precisam de correção na planilha-fonte.</div></div>
+ <div class="card kpi valor-total"><div class="label">Valor total monitorado</div><div class="metric money" id="kpiValor">-</div><div class="hint">Soma financeira do recorte atual sem duplicidade.</div><div class="submetric">Separado do valor efetivamente parado.</div></div>
  </div>
 
  <div class="row">
@@ -369,6 +384,7 @@ body:before{content:'';position:fixed;inset:0;background-image:linear-gradient(r
 </div>
 <script>
 const RAW_DOCS = ${JSON.stringify(data.docs)};
+const DATA_QUALITY = ${JSON.stringify(data.quality)};
 const fmtMoney = v => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(v||0);
 const toDateInput = s => { if(!s) return ''; const p=s.split('/'); return p.length===3 ? [p[2], p[1].padStart(2,'0'), p[0].padStart(2,'0')].join('-') : ''; };
 const fromIsoToBr = iso => {
@@ -378,7 +394,7 @@ const fromIsoToBr = iso => {
  return parts[2] + '/' + parts[1] + '/' + parts[0];
 };
 function toIso(v){ if(!v||v.length!==10) return ''; const p=v.split('-'); return (p.length===3&&p[0].length===2&&p[1].length===2&&p[2].length===4) ? p[2]+'-'+p[1]+'-'+p[0] : ''; }
-function normalizeDateInput(el){ const digits = String(el.value || '').replace(/\D/g,'').slice(0,8); if (!digits) { el.value = ''; return; } if (digits.length <= 2) { el.value = digits; return; } if (digits.length <= 4) { el.value = digits.slice(0,2) + '-' + digits.slice(2); return; } el.value = digits.slice(0,2) + '-' + digits.slice(2,4) + '-' + digits.slice(4,8); }
+function normalizeDateInput(el){ const digits = String(el.value || '').replace(/\\D/g,'').slice(0,8); if (!digits) { el.value = ''; return; } if (digits.length <= 2) { el.value = digits; return; } if (digits.length <= 4) { el.value = digits.slice(0,2) + '-' + digits.slice(2); return; } el.value = digits.slice(0,2) + '-' + digits.slice(2,4) + '-' + digits.slice(4,8); }
 const byCount = (arr, keyFn) => { const m = new Map(); arr.forEach(r => { const k = keyFn(r); m.set(k,(m.get(k)||0)+1); }); return Array.from(m.entries()).map(([key,value])=>({key,value})); };
 const empresaBox = document.getElementById('empresaCheckboxes'); const dataInicialFiltro = document.getElementById('dataInicialFiltro'); const dataFinalFiltro = document.getElementById('dataFinalFiltro');
 const setHtml = (id, html) => document.getElementById(id).innerHTML = html;
@@ -395,27 +411,29 @@ function renderBars(targetId, items, emptyText){ if(!items.length){ setHtml(targ
 function render(){
  const periodo = getPeriodo();
  const docs = filteredDocs();
- const erroSolicitacao = docs.filter(r => r.statusOperacional === 'Erro na solicitação');
- const erroPedido = docs.filter(r => r.statusOperacional === 'Erro no pedido/medição');
+ const erroSolicitacao = docs.filter(r => r.erroSolicitacao);
+ const erroPedido = docs.filter(r => r.erroPedidoMedicao);
+ const erroSolicitacaoCelulas = docs.reduce((s,r)=>s+(r.errosSolicitacaoOrigem||0),0);
+ const erroPedidoCelulas = docs.reduce((s,r)=>s+(r.errosPedidoOrigem||0),0);
  const semSolicitacao = docs.filter(r => r.statusOperacional === 'Sem solicitação');
  const semPedido = docs.filter(r => r.statusOperacional === 'Com solicitação, sem pedido/medição');
  const podeLancar = docs.filter(r => r.statusOperacional === 'Liberado para lançar');
  const lancado = docs.filter(r => r.statusOperacional === 'Lançado no Mega');
+ const foraFluxo = docs.filter(r => r.statusOperacional === 'Fora do fluxo');
 
  setText('kpiTotal', docs.length);
  setText('kpiSemSolicitacao', semSolicitacao.length);
- setText('kpiErroSolicitacao', erroSolicitacao.length);
+ setText('kpiErroSolicitacao', erroSolicitacaoCelulas);
  setText('kpiSemPedido', semPedido.length);
- setText('kpiErroPedido', erroPedido.length);
+ setText('kpiErroPedido', erroPedidoCelulas);
  setText('kpiPodeLancar', podeLancar.length);
  setText('kpiLancado', lancado.length);
+ setText('kpiForaFluxo', foraFluxo.length);
  setText('kpiValor', fmtMoney(docs.reduce((s,r)=>s+(r.valor||0),0)));
 
  const statusRank = [
  {key:'Sem solicitação', value:semSolicitacao.length},
- {key:'Erro na solicitação', value:erroSolicitacao.length},
  {key:'Com solicitação, sem pedido/medição', value:semPedido.length},
- {key:'Erro no pedido/medição', value:erroPedido.length},
  {key:'Liberado para lançar', value:podeLancar.length}
  ].sort((a,b)=>b.value-a.value);
  setText('gargaloPrincipal', statusRank[0]?.key || '-');
@@ -435,7 +453,7 @@ function render(){
  });
  const obraMaiorAtraso = Array.from(atrasoPorObra.values()).sort((a,b)=>b.atrasoTotal-a.atrasoTotal || b.qtd-a.qtd)[0];
  setText('obraCritica', obraMaiorAtraso?.obra || '-');
- const valorParado = docs.filter(r => r.statusOperacional !== 'Lançado no Mega').reduce((s,r)=>s+(r.valor||0),0);
+ const valorParado = docs.filter(r => !['Lançado no Mega','Liberado para lançar','Fora do fluxo'].includes(r.statusOperacional)).reduce((s,r)=>s+(r.valor||0),0);
  setText('valorParado', fmtMoney(valorParado));
 
  const obras = obrasRank.slice(0,8);
@@ -448,11 +466,11 @@ function render(){
  docsComObraValida.forEach(r => {
  const key = r.obra;
  const item = rankingMap.get(key) || {obra:key,totalAtivo:0,semSolicitacao:0,erroSolicitacao:0,semPedido:0,erroPedido:0,podeLancar:0,lancado:0};
- if(r.statusOperacional !== 'Lançado no Mega') item.totalAtivo++;
+ if(!['Lançado no Mega','Fora do fluxo'].includes(r.statusOperacional)) item.totalAtivo++;
  if(r.statusOperacional === 'Sem solicitação') item.semSolicitacao++;
- if(r.statusOperacional === 'Erro na solicitação') item.erroSolicitacao++;
+ if(r.erroSolicitacao) item.erroSolicitacao++;
  if(r.statusOperacional === 'Com solicitação, sem pedido/medição') item.semPedido++;
- if(r.statusOperacional === 'Erro no pedido/medição') item.erroPedido++;
+ if(r.erroPedidoMedicao) item.erroPedido++;
  if(r.statusOperacional === 'Liberado para lançar') item.podeLancar++;
  if(r.statusOperacional === 'Lançado no Mega') item.lancado++;
  rankingMap.set(key,item);
@@ -501,22 +519,34 @@ render();
 
 async function main() {
  const contactData = loadContacts();
- const docs = await loadDocs(contactData);
- const html = buildHtml({
-  spreadsheetTitle: SPREADSHEET_TITLE,
-  generatedAt: new Date().toLocaleString('pt-BR'),
-  docs
- });
+ const loaded = await loadDocs(contactData);
+ const docs = loaded.docs;
+ const quality = {
+  sourceRows: loaded.sourceRows,
+  duplicateRowsRemoved: loaded.duplicateRowsRemoved,
+  duplicateGroups: loaded.duplicateGroups.length,
+  missingDates: loaded.missingDates,
+  missingInvoices: loaded.missingInvoices,
+  missingSuppliers: loaded.missingSuppliers,
+  sheetStats: loaded.sheetStats
+ };
+ const html = buildHtml({ spreadsheetTitle: SPREADSHEET_TITLE, generatedAt: new Date().toLocaleString('pt-BR'), docs, quality });
 
  fs.writeFileSync(OUTPUT, html, 'utf8');
  console.log(`Dashboard gerada em: ${OUTPUT}`);
- console.log(`Total de notas: ${docs.length}`);
+ console.log(`Linhas válidas na fonte: ${quality.sourceRows}`);
+ console.log(`Duplicidades consolidadas: ${quality.duplicateRowsRemoved}`);
+ console.log(`Total de notas únicas: ${docs.length}`);
+ console.log(`Sem data: ${quality.missingDates}`);
  console.log(`Sem solicitação: ${docs.filter(r => r.statusOperacional === 'Sem solicitação').length}`);
- console.log(`Erro na solicitação: ${docs.filter(r => r.erroSolicitacao).length}`);
+ console.log(`Erro na solicitação (células): ${docs.reduce((s,r)=>s+(r.errosSolicitacaoOrigem||0),0)}`);
  console.log(`Com solicitação, sem pedido/medição: ${docs.filter(r => r.statusOperacional === 'Com solicitação, sem pedido/medição').length}`);
- console.log(`Erro no pedido/medição: ${docs.filter(r => r.erroPedidoMedicao).length}`);
+ console.log(`Erro no pedido/medição (células): ${docs.reduce((s,r)=>s+(r.errosPedidoOrigem||0),0)}`);
  console.log(`Liberado para lançar: ${docs.filter(r => r.statusOperacional === 'Liberado para lançar').length}`);
  console.log(`Lançado no Mega: ${docs.filter(r => r.statusOperacional === 'Lançado no Mega').length}`);
+ console.log(`Fora do fluxo: ${docs.filter(r => r.statusOperacional === 'Fora do fluxo').length}`);
+ console.log(`Soma das categorias: ${['Sem solicitação','Com solicitação, sem pedido/medição','Liberado para lançar','Lançado no Mega','Fora do fluxo'].reduce((s,status)=>s+docs.filter(r=>r.statusOperacional===status).length,0)}`);
+ console.log(`Por aba: ${quality.sheetStats.map(x=>`${x.sheet}=${x.included}`).join(', ')}`);
 }
 
 main().catch(err => {
